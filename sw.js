@@ -1,5 +1,5 @@
 // FlowPlan 3D service worker — lets the app open with no signal (basements, crawlspaces).
-const VERSION = "flowplan3d-v1.3.0";
+const VERSION = "flowplan3d-v1.4.0";
 const SHELL = [
   "./",
   "./index.html",
@@ -10,7 +10,9 @@ const SHELL = [
 ];
 const CDN = [
   "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+  "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js",
+  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet-src.esm.js",
+  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
 ];
 
 self.addEventListener("install", (event) => {

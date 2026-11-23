@@ -221,6 +221,14 @@
     #ms-canvas { width: 100%; display: block; touch-action: none; background: #000; border-radius: 8px; }
     #ms-status { font-size: 12.5px; line-height: 1.4; color: #e2e8f0; }
 
+    #sat-modal { position: fixed; inset: 0; z-index: 100; display: none; flex-direction: column; background: var(--panel-solid); padding-top: env(safe-area-inset-top, 0px); }
+    #sat-top, #sat-bottom { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--panel-solid); }
+    #sat-bottom { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); }
+    #sat-map { flex: 1; min-height: 0; background: #0b1120; user-select: none; }
+    #sat-status { font-size: 12.5px; line-height: 1.4; }
+    .sat-pin { width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #facc15; color: #020617; border: 2px solid #020617;
+      font: 800 13px/22px sans-serif; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+
     /* Photo Modal */
     #photo-modal {
       position: fixed; inset: 0; background: rgba(2,6,23,0.88); z-index: 100;
@@ -350,6 +358,7 @@
           <label>Building Name / Address</label>
           <input id="inp-bldg-name" value="1420 Oak Ridge Duplex" />
         </div>
+        <button class="btn primary" id="btn-sat-measure" style="padding:11px;">🛰️ Find Building On Satellite & Measure It</button>
         <div class="field-row">
           <div class="field">
             <label>Width (ft)</label>
@@ -642,6 +651,30 @@
     </div>
   </div>
 
+  <!-- SATELLITE BUILDING MEASURE -->
+  <div id="sat-modal">
+    <div id="sat-top">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+        <strong style="font-size:14px;color:var(--accent);">Measure Building From Satellite</strong>
+        <button class="btn" id="sat-close">✕ Close</button>
+      </div>
+      <div class="field-row">
+        <input id="sat-search" placeholder="Street address, town, state" enterkeyhint="search" />
+        <button class="btn primary" id="sat-go" style="flex-shrink:0;">Find</button>
+        <button class="btn" id="sat-gps" style="flex-shrink:0;" title="Use my location">📍 Me</button>
+      </div>
+    </div>
+    <div id="sat-map"></div>
+    <div id="sat-bottom">
+      <div id="sat-status">Zoom in on the building, then tap its <strong>front-left</strong> corner (street side, on your left as you face it from the street).</div>
+      <div class="view-grid">
+        <button class="btn" id="sat-undo">↩ Undo Corner</button>
+        <button class="btn" id="sat-clear">↺ Clear</button>
+      </div>
+      <button class="btn success" id="sat-use" style="padding:11px;">✅ Use These Measurements</button>
+    </div>
+  </div>
+
   <!-- MEASURE FROM A KNOWN OBJECT -->
   <div id="measure-modal">
     <div class="modal-box">
@@ -772,6 +805,7 @@ const FIX_INFO = {
     const miniCanvas = document.getElementById('minimap-canvas');
     const miniCtx = miniCanvas.getContext('2d');
     let cameraActive = false;
+    let headingIsCompass = false, manualForward = false;
     let lastOrient = null, aim = null;            // phone tilt + active aim-measure session
     let selectedFixtureId = null;                 // fixture picked in the room layout editor
     let autoDir = false, headingBase = null, headingNow = null;   // compass-driven walking direction
@@ -2048,9 +2082,14 @@ const FIX_INFO = {
       else if (typeof e.alpha === "number") h = 360 - e.alpha;                           // Android
       if (h === null || Number.isNaN(h)) return;
       headingNow = ((h % 360) + 360) % 360;
+      headingIsCompass = typeof e.webkitCompassHeading === "number" || e.absolute === true || e.type === "deviceorientationabsolute";
       if (!autoDir) return;
-      if (headingBase === null) headingBase = headingNow;
-      const rel = (headingNow - headingBase + 360) % 360;
+      // If the building was located on satellite, "Forward" is the real compass direction from the
+      // street toward the back of the building, so it is right no matter which door you came in.
+      const bb = state.building.bearing;
+      const useBuilding = !manualForward && headingIsCompass && Number.isFinite(bb);
+      if (!useBuilding && headingBase === null) headingBase = headingNow;
+      const rel = (headingNow - (useBuilding ? bb : headingBase) + 360) % 360;
       const q = Math.round(rel / 90) % 4;
       const off = Math.abs(rel - Math.round(rel / 90) * 90);
       const names = ["Forward", "Right", "Back", "Left"];
@@ -2084,6 +2123,7 @@ const FIX_INFO = {
       if (autoDir) { setAutoDir(false); return; }
       if (!(await hookOrientation())) { alert("This phone or browser did not allow compass access, so pick directions with the arrows."); return; }
       headingBase = null;                                      // the way you face right now becomes Forward
+      manualForward = false;
       setAutoDir(true);
       setTimeout(() => {
         if (autoDir && headingNow === null) { setAutoDir(false); alert("No compass signal from this device, so pick directions with the arrows."); }
@@ -2092,6 +2132,7 @@ const FIX_INFO = {
     document.getElementById('btn-set-forward').onclick = async () => {
       if (!(await hookOrientation())) { alert("This phone or browser did not allow compass access."); return; }
       if (headingNow !== null) headingBase = headingNow; else headingBase = null;
+      manualForward = true;
       state.walkDir = "north";
       document.querySelectorAll('.dir-btn').forEach(b => b.classList.toggle('active', b.dataset.dir === "north"));
       flashHud('🎯 "Forward" set to the way you are facing');
@@ -2283,6 +2324,127 @@ const FIX_INFO = {
     };
     document.getElementById('ms-use-w').onclick = () => msUse("w", true);
     document.getElementById('ms-use-d').onclick = () => msUse("d", true);
+
+// =========================================================================
+    // 9. SATELLITE: FIND THE BUILDING, TAP 3 CORNERS, GET ITS SIZE + COMPASS BEARING
+    // =========================================================================
+    const LEAFLET = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/";
+    const M_TO_FT = 3.28084;
+    let L = null, satMap = null, satPts = [], satLayers = null;
+
+    async function loadLeaflet() {
+      if (L) return L;
+      const css = document.createElement('link');
+      css.rel = "stylesheet"; css.href = LEAFLET + "leaflet.css";
+      document.head.appendChild(css);
+      L = await import(LEAFLET + "leaflet-src.esm.js");
+      return L;
+    }
+    const satBearing = (a, b) => {       // compass degrees travelling from a to b
+      const r = Math.PI / 180, dLng = (b.lng - a.lng) * r;
+      const y = Math.sin(dLng) * Math.cos(b.lat * r);
+      const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos(dLng);
+      return (Math.atan2(y, x) / r + 360) % 360;
+    };
+    function satMeasure() {
+      if (satPts.length < 3) return null;
+      const [a, b, c] = satPts.map(m => m.getLatLng());
+      return { width: satMap.distance(a, b) * M_TO_FT, depth: satMap.distance(b, c) * M_TO_FT, bearing: satBearing(b, c), a, b, c };
+    }
+    function satRedraw() {
+      satLayers.clearLayers();
+      const pts = satPts.map(m => m.getLatLng());
+      if (pts.length === 2) L.polyline(pts, { color: "#facc15", weight: 3 }).addTo(satLayers);
+      if (pts.length === 3) {
+        const d = { lat: pts[0].lat + pts[2].lat - pts[1].lat, lng: pts[0].lng + pts[2].lng - pts[1].lng };
+        L.polygon([pts[0], pts[1], pts[2], d], { color: "#38bdf8", weight: 3, fillOpacity: 0.15 }).addTo(satLayers);
+        L.polyline([pts[0], pts[1]], { color: "#facc15", weight: 5 }).addTo(satLayers);   // front wall
+      }
+      const st = document.getElementById('sat-status'), m = satMeasure();
+      if (pts.length === 0) st.innerHTML = 'Zoom in on the building, then tap its <strong>front-left</strong> corner (street side, on your left as you face it from the street).';
+      else if (pts.length === 1) st.innerHTML = 'Now tap the <strong>front-right</strong> corner (other end of the street-side wall).';
+      else if (pts.length === 2) st.innerHTML = `Front wall: <strong style="color:#facc15;">${fmtFt(satMap.distance(pts[0], pts[1]) * M_TO_FT)}</strong>. Now tap the <strong>back-right</strong> corner.`;
+      else st.innerHTML = `Width (front) <strong style="color:#facc15;">${fmtFt(m.width)}</strong> × Depth <strong style="color:#38bdf8;">${fmtFt(m.depth)}</strong>. Drag a numbered dot to fine-tune.`;
+    }
+    function satAddPoint(latlng) {
+      if (satPts.length >= 3) return;
+      const marker = L.marker(latlng, {
+        draggable: true,
+        icon: L.divIcon({ className: "", html: `<div class="sat-pin">${satPts.length + 1}</div>`, iconSize: [0, 0] })
+      }).addTo(satMap);
+      marker.on('drag', satRedraw);
+      satPts.push(marker);
+      satRedraw();
+    }
+    function satClear() { satPts.forEach(m => m.remove()); satPts = []; satRedraw(); }
+
+    async function openSatellite() {
+      document.getElementById('sat-modal').style.display = 'flex';
+      try { await loadLeaflet(); } catch {
+        document.getElementById('sat-modal').style.display = 'none';
+        alert("Could not load the map. Satellite view needs an internet connection.");
+        return;
+      }
+      if (!satMap) {
+        const b = state.building;
+        const start = Number.isFinite(b.lat) ? [b.lat, b.lng] : [44.4687, -71.1851];
+        satMap = L.map('sat-map', { zoomControl: true, attributionControl: true }).setView(start, Number.isFinite(b.lat) ? 20 : 14);
+        L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+          maxNativeZoom: 19, maxZoom: 22, attribution: "Imagery © Esri, Maxar, Earthstar Geographics"
+        }).addTo(satMap);
+        satLayers = L.layerGroup().addTo(satMap);
+        satMap.on('click', (e) => satAddPoint(e.latlng));
+        satRedraw();
+      }
+      const q = document.getElementById('sat-search');
+      if (!q.value && state.building.name && !/^(Building|1420 Oak Ridge Duplex|Oak Ridge 2-Story Duplex)$/.test(state.building.name)) q.value = state.building.name;
+      setTimeout(() => satMap.invalidateSize(), 60);
+    }
+    document.getElementById('btn-sat-measure').onclick = openSatellite;
+    document.getElementById('sat-close').onclick = () => document.getElementById('sat-modal').style.display = 'none';
+    document.getElementById('sat-undo').onclick = () => { const m = satPts.pop(); if (m) m.remove(); satRedraw(); };
+    document.getElementById('sat-clear').onclick = satClear;
+
+    async function satSearch() {
+      const q = document.getElementById('sat-search').value.trim();
+      if (!q || !satMap) return;
+      const btn = document.getElementById('sat-go'); btn.textContent = "…";
+      try {
+        const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=" + encodeURIComponent(q));
+        const hits = await res.json();
+        if (!hits.length) alert("Couldn't find that address. Try adding the town and state, or use 📍 Me while standing at the building.");
+        else satMap.setView([Number(hits[0].lat), Number(hits[0].lon)], 19);
+      } catch { alert("Address search needs an internet connection."); }
+      btn.textContent = "Find";
+    }
+    document.getElementById('sat-go').onclick = satSearch;
+    document.getElementById('sat-search').addEventListener('keydown', (e) => { if (e.key === "Enter") { e.target.blur(); satSearch(); } });
+    document.getElementById('sat-gps').onclick = () => {
+      if (!navigator.geolocation) { alert("This device did not offer a location."); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => satMap && satMap.setView([pos.coords.latitude, pos.coords.longitude], 20),
+        () => alert("Location was blocked. Allow location for this site, or type the address."),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    };
+    document.getElementById('sat-use').onclick = () => {
+      const m = satMeasure();
+      if (!m) { alert("Tap three corners first: front-left, front-right, back-right."); return; }
+      const half = (ft) => Math.max(12, Math.round(ft * 2) / 2);
+      const q = document.getElementById('sat-search').value.trim();
+      const typed = document.getElementById('inp-bldg-name').value.trim();
+      state.building.name = (typed && typed !== "1420 Oak Ridge Duplex") ? typed : (q || typed || "Building");
+      state.building.width = half(m.width);
+      state.building.depth = half(m.depth);
+      state.building.bearing = Math.round(m.bearing);
+      state.building.lat = (m.a.lat + m.c.lat) / 2;
+      state.building.lng = (m.a.lng + m.c.lng) / 2;
+      state.building.sewerExitSide = document.getElementById('inp-sewer-side').value;
+      state.building.marked = true;
+      document.getElementById('sat-modal').style.display = 'none';
+      persistState(); updateWalkUI(); rebuild3DScene();
+      flashHud(`🛰️ Building set to ${state.building.width}'×${state.building.depth}' from satellite`);
+    };
 
     animate();
     updateWalkUI();
