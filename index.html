@@ -156,6 +156,10 @@
     }
     .dir-btn.active { background: var(--accent); color: #020617; border-color: var(--accent); }
 
+    #room-editor { width: 100%; display: block; touch-action: none; border-radius: 8px; border: 1px solid var(--border); background: #060c19; }
+    .edit-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    .edit-grid .btn { padding: 10px 2px; font-size: 12px; }
+    #ed-readout { font-size: 11.5px; color: #e2e8f0; line-height: 1.45; min-height: 32px; }
     .log-list { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
     .log-item {
       background: #0b1120; border: 1px solid #1e293b; border-radius: 6px; padding: 7px 8px;
@@ -400,13 +404,26 @@
         </div>
 
         <div class="field">
-          <label>Next Room Position From Current Room</label>
-          <div class="dir-grid">
-            <button class="dir-btn active" data-dir="east">→ Right</button>
-            <button class="dir-btn" data-dir="south">↓ Fwd</button>
-            <button class="dir-btn" data-dir="west">← Left</button>
-            <button class="dir-btn" data-dir="north">↑ Back</button>
+          <label>Floor You Are On In This Unit: <strong id="lbl-walk-floor" style="color:var(--accent);">1st Floor</strong></label>
+          <div class="view-grid">
+            <button class="btn" id="btn-floor-up">⬆ Went Upstairs</button>
+            <button class="btn" id="btn-floor-down">⬇ Went Downstairs</button>
           </div>
+        </div>
+
+        <div class="field">
+          <label>Which Way Did You Walk Into The Next Room? (from the way you faced at the unit door)</label>
+          <div class="dir-grid">
+            <button class="dir-btn" data-dir="west">← Left</button>
+            <button class="dir-btn active" data-dir="north">↑ Forward</button>
+            <button class="dir-btn" data-dir="east">→ Right</button>
+            <button class="dir-btn" data-dir="south">↓ Back</button>
+          </div>
+          <div class="view-grid" style="margin-top:5px;">
+            <button class="btn" id="btn-auto-dir">🧭 Auto Direction: OFF</button>
+            <button class="btn" id="btn-set-forward">🎯 Set "Forward" Now</button>
+          </div>
+          <span id="lbl-compass" style="font-size:10.5px;color:var(--muted);">Auto uses the phone compass: face into the unit, tap Set Forward, then it tracks your turns.</span>
         </div>
 
         <label style="font-size:11px;color:var(--muted);font-weight:700;">Tap Room Type:</label>
@@ -427,6 +444,28 @@
           <button class="fix-btn" data-fix="drain">🕳️ +Drain</button>
           <button class="fix-btn" data-fix="cleanout">🔧 +Cleanout</button>
           <button class="fix-btn" data-fix="heater">🔥 +Heater</button>
+          <button class="fix-btn" data-fix="shower">🚿 +Shower</button>
+          <button class="fix-btn" data-fix="stairs">🪜 +Stairs</button>
+        </div>
+
+        <div id="room-editor-wrap" style="display:none; flex-direction:column; gap:7px; margin-top:4px;">
+          <label style="font-size:11px;color:var(--muted);font-weight:700;">Room Layout: <span id="ed-room-name" style="color:var(--accent);"></span> — drag a fixture to move it, tap to select</label>
+          <canvas id="room-editor"></canvas>
+          <div id="ed-readout">Tap a fixture to select it.</div>
+          <div class="edit-grid">
+            <button class="btn" id="ed-rot-ccw">⟲ 90°</button>
+            <button class="btn" id="ed-rot-cw">⟳ 90°</button>
+            <button class="btn" id="ed-rot-ccw-fine">⟲ 15°</button>
+            <button class="btn" id="ed-rot-cw-fine">⟳ 15°</button>
+            <button class="btn" data-nudge="-1,0">← 3"</button>
+            <button class="btn" data-nudge="0,-1">↑ 3"</button>
+            <button class="btn" data-nudge="0,1">↓ 3"</button>
+            <button class="btn" data-nudge="1,0">→ 3"</button>
+          </div>
+          <div class="view-grid">
+            <button class="btn" id="ed-resize-room">↔ Resize Room To W/D Above</button>
+            <button class="btn danger" id="ed-delete">✕ Delete Fixture</button>
+          </div>
         </div>
 
         <button class="btn primary" id="btn-finish-to-studio" style="margin-top:6px; padding:11px;">
@@ -582,6 +621,17 @@
     };
     const UNIT_COLORS = ["#38bdf8", "#f472b6", "#facc15", "#a78bfa", "#34d399", "#fb923c"];
     const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 8)}`;
+const FIX_INFO = {
+      toilet:   { label: "Toilet",       w: 1.5, d: 2.4 },
+      sink:     { label: "Sink",         w: 2.4, d: 1.6 },
+      tub:      { label: "Tub",          w: 4.8, d: 2.5 },
+      shower:   { label: "Shower",       w: 3.0, d: 3.0 },
+      heater:   { label: "Water Heater", w: 1.9, d: 1.9 },
+      drain:    { label: "Floor Drain",  w: 0.9, d: 0.9 },
+      cleanout: { label: "Cleanout",     w: 0.7, d: 0.7 },
+      stairs:   { label: "Stairs",       w: 3.0, d: 10.0 }
+    };
+    const fmtFt = (v) => { const i = Math.round(v * 12); return `${Math.floor(i / 12)}' ${i % 12}"`; };
     const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
     // Merge loaded data over a blank project so missing/invalid fields can't break the app
@@ -591,6 +641,11 @@
       s.building = { ...base.building, ...(s.building || {}) };
       ["units", "rooms", "photos", "pipeNodes", "pipes"].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
       s.rooms.forEach(r => { if (!Array.isArray(r.fixtures)) r.fixtures = []; });
+      if (raw && raw.walkFloor === undefined) {
+        const u = s.units.find(x => x.id === s.activeUnitId);
+        const r = s.rooms.find(x => x.id === s.activeRoomId);
+        s.walkFloor = r ? r.floor : (u ? u.floor : 0);
+      }
       return s;
     }
 
@@ -604,7 +659,9 @@
         pipes: [],
         activeUnitId: null,
         activeRoomId: null,
-        walkDir: "east"
+        walkDir: "north",
+        walkFloor: 0,
+        pendingStairs: false
       };
     }
 
@@ -640,6 +697,8 @@
     const miniCanvas = document.getElementById('minimap-canvas');
     const miniCtx = miniCanvas.getContext('2d');
     let cameraActive = false;
+    let selectedFixtureId = null;                 // fixture picked in the room layout editor
+    let autoDir = false, headingBase = null, headingNow = null;   // compass-driven walking direction
     let currentFacing = "environment";
     let simFrame = 0;
 
@@ -749,7 +808,7 @@
       ctx.setLineDash([]);
 
       const activeUnit = state.units.find(u => u.id === state.activeUnitId);
-      const showFloor = activeUnit ? activeUnit.floor : 0;
+      const showFloor = activeUnit ? (Number.isFinite(state.walkFloor) ? state.walkFloor : activeUnit.floor) : 0;
 
       state.rooms.filter(r => r.floor === showFloor).forEach(r => {
         const unit = state.units.find(u => u.id === r.unitId);
@@ -767,7 +826,7 @@
         ctx.fillText(r.type.slice(0, 7), ox + r.x * scale, oy + r.z * scale + 3);
 
         r.fixtures.forEach(f => {
-          ctx.fillStyle = f.type === "toilet" ? "#22c55e" : f.type === "sink" ? "#38bdf8" : "#facc15";
+          ctx.fillStyle = f.type === "toilet" ? "#22c55e" : f.type === "sink" ? "#38bdf8" : f.type === "stairs" ? "#f472b6" : "#facc15";
           ctx.beginPath();
           ctx.arc(ox + (r.x + f.rx) * scale, oy + (r.z + f.rz) * scale, 2.3, 0, Math.PI * 2);
           ctx.fill();
@@ -787,6 +846,7 @@
       document.querySelectorAll('.step-tab').forEach(b => b.classList.toggle('active', b.dataset.step === step));
       document.querySelectorAll('.step-pane').forEach(p => p.style.display = 'none');
       document.getElementById(`pane-${step}`).style.display = 'flex';
+      if (step === 'room') drawRoomEditor();
     }
     document.querySelectorAll('.step-tab').forEach(btn => btn.onclick = () => setWalkStep(btn.dataset.step));
 
@@ -821,6 +881,10 @@
       state.units.push(unit);
       state.activeUnitId = unit.id;
       state.activeRoomId = null;
+      state.walkFloor = floor;
+      state.pendingStairs = false;
+      state.walkDir = "north";
+      if (headingNow != null) headingBase = headingNow;   // the way you face at the door = Forward
       document.getElementById('inp-unit-name').value = `Unit ${101 + state.units.length * 100}`;
       persistState(); updateWalkUI(); rebuild3DScene();
       setWalkStep('room');
@@ -832,15 +896,47 @@
         document.querySelectorAll('.dir-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         state.walkDir = btn.dataset.dir;
+        if (autoDir) setAutoDir(false);   // a manual pick overrides the compass
       };
     });
 
     document.getElementById('sel-active-unit').onchange = (e) => {
-      state.activeUnitId = e.target.value;
-      const uRooms = state.rooms.filter(r => r.unitId === state.activeUnitId);
-      state.activeRoomId = uRooms.length ? uRooms[uRooms.length - 1].id : null;
+      activateUnit(e.target.value);
       updateWalkUI();
     };
+
+    function activateUnit(unitId) {
+      state.activeUnitId = unitId;
+      const u = state.units.find(x => x.id === unitId);
+      const uRooms = state.rooms.filter(r => r.unitId === unitId);
+      const last = uRooms.length ? uRooms[uRooms.length - 1] : null;
+      state.activeRoomId = last ? last.id : null;
+      state.walkFloor = last ? last.floor : (u ? u.floor : 0);
+      state.pendingStairs = false;
+      selectedFixtureId = null;
+    }
+
+    // Going up or down a flight inside the same unit (townhouse, basement stairs, loft)
+    function changeWalkFloor(delta) {
+      if (!state.activeUnitId) { alert("Enter a Unit first (Step 2)."); setWalkStep('unit'); return; }
+      const cur = Number.isFinite(state.walkFloor) ? state.walkFloor : 0;
+      const next = cur + delta;
+      if (FLOOR_Y[String(next)] === undefined) { alert(delta > 0 ? "3rd Floor is the highest level." : "Basement is the lowest level."); return; }
+      const room = state.rooms.find(r => r.id === state.activeRoomId);
+      if (delta > 0) {
+        // stairs rise from the room you are leaving
+        if (room && !room.fixtures.some(f => f.type === "stairs")) room.fixtures.push({ id: uid("f"), type: "stairs", rx: 0, rz: 0, rot: 0 });
+        state.pendingStairs = false;
+      } else {
+        // stairs rise from the room you arrive in below
+        state.pendingStairs = true;
+      }
+      state.walkFloor = next;
+      persistState(); updateWalkUI(); rebuild3DScene();
+      flashHud(`${delta > 0 ? "⬆" : "⬇"} Now on ${FLOOR_NAMES[String(next)]} — tag the room you arrived in`);
+    }
+    document.getElementById('btn-floor-up').onclick = () => changeWalkFloor(1);
+    document.getElementById('btn-floor-down').onclick = () => changeWalkFloor(-1);
 
     function defaultFixturesForRoom(type, w, d) {
       if (type === "Bathroom") {
@@ -871,26 +967,36 @@
         if (type === "Closet" && w >= 8 && d >= 8) { w = 5; d = 4; }
 
         const unitRooms = state.rooms.filter(r => r.unitId === unit.id);
+        const floor = Number.isFinite(state.walkFloor) ? state.walkFloor : unit.floor;
         let x = 0, z = 0;
         if (unitRooms.length === 0) {
           const bw = state.building.width, bd = state.building.depth;
           if (unit.zone === "right") x = 1 + w / 2;
           else x = -bw / 2 + w / 2 + 1;
-          z = -bd / 2 + d / 2 + 1;
+          z = bd / 2 - d / 2 - 1;   // first room sits at the entry (street) side; Forward goes deeper in
         } else {
           const prev = state.rooms.find(r => r.id === state.activeRoomId) || unitRooms[unitRooms.length - 1];
           x = prev.x; z = prev.z;
-          if (state.walkDir === "east")  x = prev.x + prev.w / 2 + w / 2;
-          if (state.walkDir === "west")  x = prev.x - prev.w / 2 - w / 2;
-          if (state.walkDir === "south") z = prev.z + prev.d / 2 + d / 2;
-          if (state.walkDir === "north") z = prev.z - prev.d / 2 - d / 2;
+          if (prev.floor === floor) {
+            // Forward = up the plan, Right = right of the plan, exactly as you'd see it standing at the door
+            if (state.walkDir === "east")  x = prev.x + prev.w / 2 + w / 2;
+            if (state.walkDir === "west")  x = prev.x - prev.w / 2 - w / 2;
+            if (state.walkDir === "south") z = prev.z + prev.d / 2 + d / 2;
+            if (state.walkDir === "north") z = prev.z - prev.d / 2 - d / 2;
+          }
+          // changed floors: the room you arrive in stacks directly over/under the one you left
         }
 
-        const room = { id: uid("r"), unitId: unit.id, floor: unit.floor, type, x, z, w, d, fixtures: defaultFixturesForRoom(type, w, d) };
+        const room = { id: uid("r"), unitId: unit.id, floor, type, x, z, w, d, fixtures: defaultFixturesForRoom(type, w, d) };
+        if (state.pendingStairs) {
+          room.fixtures.push({ id: uid("f"), type: "stairs", rx: 0, rz: 0, rot: 0 });
+          state.pendingStairs = false;
+        }
         state.rooms.push(room);
         state.activeRoomId = room.id;
+        selectedFixtureId = null;
         persistState(); updateWalkUI(); rebuild3DScene();
-        flashHud(`✅ ${type} (${w}'×${d}') in ${unit.name}`);
+        flashHud(`✅ ${type} (${w}'×${d}') in ${unit.name} • ${FLOOR_NAMES[String(floor)]}`);
       };
     });
 
@@ -900,9 +1006,11 @@
         if (!room) { alert("Tag a room first."); return; }
         const type = btn.dataset.fix;
         const offset = (room.fixtures.length % 4 - 1.5) * 1.4;
-        room.fixtures.push({ id: uid("f"), type, rx: Math.max(-room.w/2 + 1, Math.min(room.w/2 - 1, offset)), rz: 0, rot: 0 });
+        const nf = { id: uid("f"), type, rx: Math.max(-room.w/2 + 1, Math.min(room.w/2 - 1, offset)), rz: 0, rot: 0 };
+        room.fixtures.push(nf);
+        selectedFixtureId = nf.id;
         persistState(); updateWalkUI(); rebuild3DScene();
-        flashHud(`➕ Added ${type} to ${room.type}`);
+        flashHud(`➕ Added ${(FIX_INFO[type] || {}).label || type} to ${room.type} — drag it into place below`);
       };
     });
 
@@ -910,7 +1018,7 @@
       const unit = state.units.find(u => u.id === state.activeUnitId);
       const room = state.rooms.find(r => r.id === state.activeRoomId);
       const locLabel = `${unit ? unit.name : 'Exterior'}${room ? ' — ' + room.type : ''}`;
-      const floor = unit ? unit.floor : 0;
+      const floor = room ? room.floor : (unit ? unit.floor : 0);
       const px = room ? room.x : 0;
       const pz = room ? room.z : state.building.depth / 2 + 2;
       const py = (FLOOR_Y[String(floor)] || 0) + 4.5;
@@ -972,7 +1080,7 @@
         if (u.id === state.activeUnitId) div.style.background = "#16233b";
         div.innerHTML = `<span><strong>${esc(u.name)}</strong> (${FLOOR_NAMES[String(u.floor)] || "Floor"})</span>
           <button class="btn" style="padding:3px 8px;font-size:10px;">Select</button>`;
-        div.querySelector('button').onclick = () => { state.activeUnitId = u.id; updateWalkUI(); setWalkStep('room'); };
+        div.querySelector('button').onclick = () => { activateUnit(u.id); updateWalkUI(); setWalkStep('room'); };
         unitList.appendChild(div);
 
         const opt = document.createElement('option');
@@ -989,9 +1097,16 @@
         const u = state.units.find(x => x.id === r.unitId);
         const item = document.createElement('div');
         item.className = "log-item";
-        item.innerHTML = `<span><strong style="color:${u ? esc(u.color) : '#fff'}">${u ? esc(u.name) : ''}</strong> • ${esc(r.type)} (${Number(r.w)}'×${Number(r.d)}') • ${r.fixtures.length} fix</span>
-          <button class="btn danger" style="padding:3px 7px;font-size:10px;">✕</button>`;
-        item.querySelector('button').onclick = () => {
+        item.innerHTML = `<span><strong style="color:${u ? esc(u.color) : '#fff'}">${u ? esc(u.name) : ''}</strong> • ${esc(r.type)} (${Number(r.w)}'×${Number(r.d)}') • ${FLOOR_NAMES[String(r.floor)] || ''} • ${r.fixtures.length} fix</span>
+          <span style="display:flex;gap:4px;flex-shrink:0;"><button class="btn ed" style="padding:3px 7px;font-size:10px;">Edit</button><button class="btn danger del" style="padding:3px 7px;font-size:10px;">✕</button></span>`;
+        if (r.id === state.activeRoomId) item.style.borderColor = "var(--accent)";
+        item.querySelector('.ed').onclick = () => {
+          state.activeUnitId = r.unitId; state.activeRoomId = r.id; state.walkFloor = r.floor;
+          state.pendingStairs = false; selectedFixtureId = null;
+          persistState(); updateWalkUI(); setWalkStep('room');
+          document.getElementById('room-editor-wrap').scrollIntoView({ block: "center", behavior: "smooth" });
+        };
+        item.querySelector('.del').onclick = () => {
           state.rooms = state.rooms.filter(x => x.id !== r.id);
           if (state.activeRoomId === r.id) {
             const rest = state.rooms.filter(x => x.unitId === r.unitId);
@@ -1002,7 +1117,12 @@
         logEl.appendChild(item);
       });
 
+      document.querySelectorAll('.dir-btn').forEach(b => b.classList.toggle('active', b.dataset.dir === state.walkDir));
+      document.getElementById('lbl-walk-floor').textContent =
+        (FLOOR_NAMES[String(state.walkFloor)] || "1st Floor") + (state.pendingStairs ? " (tag the room you arrived in)" : "");
+
       drawMiniMap();
+      drawRoomEditor();
       updateStudioSidebar();
     }
 
@@ -1098,7 +1218,7 @@
       return tex;
     }
 
-    function buildFixtureMesh(fix, wx, wy, wz) {
+    function buildFixtureMesh(fix, wx, wy, wz, rise = 10) {
       const grp = new THREE.Group();
       grp.position.set(wx, wy, wz);
       grp.rotation.y = fix.rot || 0;
@@ -1126,6 +1246,26 @@
         const inner = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.15, 1.9), new THREE.MeshStandardMaterial({ color: 0x38bdf8 }));
         inner.position.set(0, 1.48, 0);
         grp.add(outer, inner);
+      } else if (fix.type === "shower") {
+        const pan = new THREE.Mesh(new THREE.BoxGeometry(3, 0.3, 3), whiteMat);
+        pan.position.set(0, 0.15, 0);
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(3, 6.5, 3), new THREE.MeshStandardMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.18, depthWrite: false }));
+        glass.position.set(0, 3.4, 0);
+        const head = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 12), new THREE.MeshStandardMaterial({ color: 0x94a3b8 }));
+        head.position.set(0, 6.4, -1.2);
+        const grate = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.06, 12), new THREE.MeshStandardMaterial({ color: 0xfacc15 }));
+        grate.position.set(0, 0.32, 0);
+        grp.add(pan, glass, head, grate);
+        drainOffsetY = 0.3;
+      } else if (fix.type === "stairs") {
+        // Climbs toward the fixture's "forward" side; rotate it in the room editor to aim it
+        const n = 13, run = 10, stepMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.6 });
+        for (let i = 0; i < n; i++) {
+          const st = new THREE.Mesh(new THREE.BoxGeometry(3, rise / n, run / n), stepMat);
+          st.position.set(0, (i + 0.5) * rise / n, run / 2 - (i + 0.5) * run / n);
+          grp.add(st);
+        }
+        return grp;   // no drain to snap to
       } else if (fix.type === "heater") {
         const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 4.8, 18), new THREE.MeshStandardMaterial({ color: 0xe2e8f0 }));
         cyl.position.set(0, 2.4, 0);
@@ -1227,7 +1367,9 @@
           buildingGroup.add(edges);
         }
 
-        r.fixtures.forEach(f => buildingGroup.add(buildFixtureMesh(f, r.x + f.rx, y, r.z + f.rz)));
+        const above = FLOOR_Y[String(r.floor + 1)];
+        const rise = above !== undefined ? above - y : 10;
+        r.fixtures.forEach(f => buildingGroup.add(buildFixtureMesh(f, r.x + f.rx, y, r.z + f.rz, rise)));
       });
 
       state.photos.forEach(ph => {
@@ -1637,6 +1779,244 @@
       controls.update();
       renderer.render(scene, camera);
     }
+// =========================================================================
+    // 7. ROOM LAYOUT EDITOR (drag / rotate / nudge fixtures) + COMPASS DIRECTION
+    // =========================================================================
+    const edCanvas = document.getElementById('room-editor');
+    const edCtx = edCanvas.getContext('2d');
+    let edView = { scale: 20, ox: 0, oy: 0 };
+    let edDrag = null;
+    const SNAP = 0.25;   // 3 inches
+
+    function editorRoom() { return state.rooms.find(r => r.id === state.activeRoomId) || null; }
+    function selectedFixture() {
+      const room = editorRoom();
+      return room ? room.fixtures.find(f => f.id === selectedFixtureId) || null : null;
+    }
+    function clampFixture(room, f) {
+      f.rx = Math.max(-room.w / 2 + SNAP, Math.min(room.w / 2 - SNAP, Math.round(f.rx / SNAP) * SNAP));
+      f.rz = Math.max(-room.d / 2 + SNAP, Math.min(room.d / 2 - SNAP, Math.round(f.rz / SNAP) * SNAP));
+    }
+
+    function drawFixture2D(ctx, f, sc, selected) {
+      const info = FIX_INFO[f.type] || { w: 1, d: 1 };
+      const w = info.w * sc, d = info.d * sc;
+      ctx.save();
+      ctx.rotate(-(f.rot || 0));
+      ctx.lineWidth = selected ? 2.5 : 1.5;
+      ctx.strokeStyle = selected ? "#facc15" : "#e2e8f0";
+      ctx.fillStyle = selected ? "rgba(250,204,21,0.18)" : "rgba(226,232,240,0.10)";
+      const box = (x, y, bw, bh) => { ctx.beginPath(); ctx.rect(x, y, bw, bh); ctx.fill(); ctx.stroke(); };
+      const oval = (x, y, rx, ry) => { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); };
+      if (f.type === "toilet") {
+        box(-w / 2, -d / 2, w, 0.7 * sc);                       // tank (back)
+        oval(0, 0.3 * sc, 0.65 * sc, 0.85 * sc);                // bowl (front)
+      } else if (f.type === "sink") {
+        box(-w / 2, -d / 2, w, d); oval(0, 0, 0.55 * sc, 0.45 * sc);
+        ctx.beginPath(); ctx.moveTo(0, -d / 2); ctx.lineTo(0, -d / 2 + 0.3 * sc); ctx.stroke();   // faucet = back
+      } else if (f.type === "tub") {
+        box(-w / 2, -d / 2, w, d);
+        ctx.beginPath(); ctx.roundRect(-w / 2 + 0.3 * sc, -d / 2 + 0.3 * sc, w - 0.6 * sc, d - 0.6 * sc, 0.5 * sc); ctx.stroke();
+        oval(-w / 2 + 0.7 * sc, 0, 0.12 * sc, 0.12 * sc);       // drain end
+      } else if (f.type === "shower") {
+        box(-w / 2, -d / 2, w, d);
+        ctx.beginPath(); ctx.moveTo(-w / 2, -d / 2); ctx.lineTo(w / 2, d / 2); ctx.moveTo(w / 2, -d / 2); ctx.lineTo(-w / 2, d / 2); ctx.stroke();
+        oval(0, 0, 0.18 * sc, 0.18 * sc);
+      } else if (f.type === "stairs") {
+        box(-w / 2, -d / 2, w, d);
+        for (let i = 1; i < 13; i++) { const y = -d / 2 + (i * d) / 13; ctx.beginPath(); ctx.moveTo(-w / 2, y); ctx.lineTo(w / 2, y); ctx.stroke(); }
+        ctx.strokeStyle = "#f472b6"; ctx.lineWidth = 2;        // arrow = direction you climb
+        ctx.beginPath(); ctx.moveTo(0, d / 2 - 0.6 * sc); ctx.lineTo(0, -d / 2 + 0.6 * sc);
+        ctx.moveTo(-0.6 * sc, -d / 2 + 1.3 * sc); ctx.lineTo(0, -d / 2 + 0.6 * sc); ctx.lineTo(0.6 * sc, -d / 2 + 1.3 * sc); ctx.stroke();
+      } else {
+        oval(0, 0, w / 2, d / 2);
+        if (f.type === "drain") { ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2, 0); ctx.moveTo(0, -d / 2); ctx.lineTo(0, d / 2); ctx.stroke(); }
+      }
+      ctx.restore();
+      ctx.fillStyle = selected ? "#facc15" : "#94a3b8";
+      ctx.font = "600 9px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText((info.label || f.type).split(" ").pop(), 0, 3);
+    }
+
+    function drawRoomEditor() {
+      const wrap = document.getElementById('room-editor-wrap');
+      const room = editorRoom();
+      if (!room) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'flex';
+      const unit = state.units.find(u => u.id === room.unitId);
+      document.getElementById('ed-room-name').textContent = `${room.type} ${room.w}'×${room.d}' (${FLOOR_NAMES[String(room.floor)] || ""})`;
+
+      const cssW = edCanvas.clientWidth || 320;
+      const cssH = Math.round(Math.max(170, Math.min(360, cssW * room.d / room.w)));
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (edCanvas.width !== Math.round(cssW * dpr) || edCanvas.height !== Math.round(cssH * dpr)) {
+        edCanvas.width = Math.round(cssW * dpr); edCanvas.height = Math.round(cssH * dpr);
+        edCanvas.style.height = cssH + "px";
+      }
+      const pad = 20;
+      const sc = Math.min((cssW - pad * 2) / room.w, (cssH - pad * 2) / room.d);
+      edView = { scale: sc, ox: cssW / 2, oy: cssH / 2 };
+      const ctx = edCtx;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+      const x0 = edView.ox - room.w * sc / 2, y0 = edView.oy - room.d * sc / 2;
+
+      ctx.strokeStyle = "rgba(148,163,184,0.14)"; ctx.lineWidth = 1;   // 1-ft grid
+      for (let i = 1; i < room.w; i++) { ctx.beginPath(); ctx.moveTo(x0 + i * sc, y0); ctx.lineTo(x0 + i * sc, y0 + room.d * sc); ctx.stroke(); }
+      for (let j = 1; j < room.d; j++) { ctx.beginPath(); ctx.moveTo(x0, y0 + j * sc); ctx.lineTo(x0 + room.w * sc, y0 + j * sc); ctx.stroke(); }
+      ctx.strokeStyle = unit ? unit.color : "#38bdf8"; ctx.lineWidth = 3;
+      ctx.strokeRect(x0, y0, room.w * sc, room.d * sc);
+      ctx.fillStyle = "#94a3b8"; ctx.font = "700 9px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("↑ FORWARD WALL", edView.ox, y0 - 6);
+      ctx.fillText("DOOR SIDE ↓", edView.ox, y0 + room.d * sc + 13);
+
+      room.fixtures.forEach(f => {
+        ctx.save();
+        ctx.translate(edView.ox + f.rx * sc, edView.oy + f.rz * sc);
+        drawFixture2D(ctx, f, sc, f.id === selectedFixtureId);
+        ctx.restore();
+      });
+
+      const sel = selectedFixture();
+      const ro = document.getElementById('ed-readout');
+      if (!room.fixtures.length) ro.textContent = "No fixtures in this room yet. Tap a +Fixture button above.";
+      else if (!sel) ro.textContent = "Tap a fixture to select it, then drag, rotate or nudge it.";
+      else {
+        const deg = ((Math.round(-(sel.rot || 0) * 180 / Math.PI) % 360) + 360) % 360;
+        ro.innerHTML = `<strong style="color:#facc15;">${esc((FIX_INFO[sel.type] || {}).label || sel.type)}</strong> — center is ` +
+          `<strong>${fmtFt(sel.rx + room.w / 2)}</strong> from left wall, <strong>${fmtFt(sel.rz + room.d / 2)}</strong> from forward wall, turned <strong>${deg}°</strong>`;
+      }
+    }
+
+    function editorPoint(e) {
+      const rect = edCanvas.getBoundingClientRect();
+      return { x: (e.clientX - rect.left - edView.ox) / edView.scale, z: (e.clientY - rect.top - edView.oy) / edView.scale };
+    }
+    function editorHit(room, pt) {
+      const grab = Math.max(0.35, 14 / edView.scale);   // finger-sized tolerance
+      for (let i = room.fixtures.length - 1; i >= 0; i--) {
+        const f = room.fixtures[i], info = FIX_INFO[f.type] || { w: 1, d: 1 };
+        const dx = pt.x - f.rx, dz = pt.z - f.rz, t = f.rot || 0;
+        const lx = dx * Math.cos(t) - dz * Math.sin(t), lz = dx * Math.sin(t) + dz * Math.cos(t);
+        if (Math.abs(lx) <= info.w / 2 + grab && Math.abs(lz) <= info.d / 2 + grab) return f;
+      }
+      return null;
+    }
+    edCanvas.addEventListener('pointerdown', (e) => {
+      const room = editorRoom(); if (!room) return;
+      const pt = editorPoint(e), f = editorHit(room, pt);
+      selectedFixtureId = f ? f.id : null;
+      if (f) { edDrag = { id: f.id, offX: pt.x - f.rx, offZ: pt.z - f.rz, moved: false }; edCanvas.setPointerCapture(e.pointerId); }
+      drawRoomEditor();
+    });
+    edCanvas.addEventListener('pointermove', (e) => {
+      if (!edDrag) return;
+      const room = editorRoom(), f = selectedFixture(); if (!room || !f) return;
+      const pt = editorPoint(e);
+      f.rx = pt.x - edDrag.offX; f.rz = pt.z - edDrag.offZ;
+      clampFixture(room, f); edDrag.moved = true;
+      drawRoomEditor();
+    });
+    const endEditorDrag = () => {
+      if (!edDrag) return;
+      const moved = edDrag.moved; edDrag = null;
+      if (moved) { persistState(); rebuild3DScene(); drawMiniMap(); }
+    };
+    edCanvas.addEventListener('pointerup', endEditorDrag);
+    edCanvas.addEventListener('pointercancel', endEditorDrag);
+
+    function editSelected(fn) {
+      const room = editorRoom(), f = selectedFixture();
+      if (!room || !f) { alert("Tap a fixture in the room layout first."); return; }
+      fn(f, room); clampFixture(room, f);
+      persistState(); rebuild3DScene(); drawMiniMap(); drawRoomEditor();
+    }
+    const rotateBy = (deg) => editSelected(f => {
+      // clockwise on the plan = negative rotation in the 3D engine; keep it on exact 15° steps
+      const cur = Math.round(-(f.rot || 0) * 180 / Math.PI / 15) * 15;
+      f.rot = -(((cur + deg) % 360 + 360) % 360) * Math.PI / 180;
+    });
+    document.getElementById('ed-rot-cw').onclick = () => rotateBy(90);
+    document.getElementById('ed-rot-ccw').onclick = () => rotateBy(-90);
+    document.getElementById('ed-rot-cw-fine').onclick = () => rotateBy(15);
+    document.getElementById('ed-rot-ccw-fine').onclick = () => rotateBy(-15);
+    document.querySelectorAll('[data-nudge]').forEach(b => {
+      const [nx, nz] = b.dataset.nudge.split(",").map(Number);
+      b.onclick = () => editSelected(f => { f.rx += nx * SNAP; f.rz += nz * SNAP; });
+    });
+    document.getElementById('ed-delete').onclick = () => {
+      const room = editorRoom(), f = selectedFixture();
+      if (!room || !f) { alert("Tap a fixture in the room layout first."); return; }
+      room.fixtures = room.fixtures.filter(x => x.id !== f.id);
+      selectedFixtureId = null;
+      persistState(); rebuild3DScene(); updateWalkUI();
+    };
+    document.getElementById('ed-resize-room').onclick = () => {
+      const room = editorRoom(); if (!room) return;
+      room.w = Math.max(3, Number(document.getElementById('inp-room-w').value) || room.w);
+      room.d = Math.max(3, Number(document.getElementById('inp-room-d').value) || room.d);
+      room.fixtures.forEach(f => clampFixture(room, f));
+      persistState(); rebuild3DScene(); updateWalkUI();
+      flashHud(`↔ ${room.type} resized to ${room.w}'×${room.d}'`);
+    };
+    window.addEventListener('resize', drawRoomEditor);
+
+    // ---- Compass: turn the phone, the direction buttons follow --------------
+    function onOrientation(e) {
+      let h = null;
+      if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;       // iPhone
+      else if (typeof e.alpha === "number") h = 360 - e.alpha;                           // Android
+      if (h === null || Number.isNaN(h)) return;
+      headingNow = ((h % 360) + 360) % 360;
+      if (!autoDir) return;
+      if (headingBase === null) headingBase = headingNow;
+      const rel = (headingNow - headingBase + 360) % 360;
+      const q = Math.round(rel / 90) % 4;
+      const off = Math.abs(rel - Math.round(rel / 90) * 90);
+      const names = ["Forward", "Right", "Back", "Left"];
+      document.getElementById('lbl-compass').textContent = `🧭 Facing ${names[q]} (${Math.round(rel)}° from Forward)`;
+      if (off > 35) return;                                  // between two directions: hold the last one
+      const dir = ["north", "east", "south", "west"][q];
+      if (dir !== state.walkDir) {
+        state.walkDir = dir;
+        document.querySelectorAll('.dir-btn').forEach(b => b.classList.toggle('active', b.dataset.dir === dir));
+      }
+    }
+    let orientationHooked = false;
+    function setAutoDir(on) {
+      autoDir = on;
+      const btn = document.getElementById('btn-auto-dir');
+      btn.textContent = on ? "🧭 Auto Direction: ON" : "🧭 Auto Direction: OFF";
+      btn.classList.toggle('active-tool', on);
+      if (!on) document.getElementById('lbl-compass').textContent = "Auto direction off — tap an arrow to pick the direction yourself.";
+    }
+    async function hookOrientation() {
+      if (orientationHooked) return true;
+      if (typeof DeviceOrientationEvent === "undefined") return false;
+      if (typeof DeviceOrientationEvent.requestPermission === "function") {
+        try { if (await DeviceOrientationEvent.requestPermission() !== "granted") return false; } catch { return false; }
+      }
+      window.addEventListener('ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onOrientation);
+      orientationHooked = true;
+      return true;
+    }
+    document.getElementById('btn-auto-dir').onclick = async () => {
+      if (autoDir) { setAutoDir(false); return; }
+      if (!(await hookOrientation())) { alert("This phone or browser did not allow compass access, so pick directions with the arrows."); return; }
+      headingBase = null;                                      // the way you face right now becomes Forward
+      setAutoDir(true);
+      setTimeout(() => {
+        if (autoDir && headingNow === null) { setAutoDir(false); alert("No compass signal from this device, so pick directions with the arrows."); }
+      }, 2000);
+    };
+    document.getElementById('btn-set-forward').onclick = async () => {
+      if (!(await hookOrientation())) { alert("This phone or browser did not allow compass access."); return; }
+      if (headingNow !== null) headingBase = headingNow; else headingBase = null;
+      state.walkDir = "north";
+      document.querySelectorAll('.dir-btn').forEach(b => b.classList.toggle('active', b.dataset.dir === "north"));
+      flashHud('🎯 "Forward" set to the way you are facing');
+    };
+
     animate();
     updateWalkUI();
 
