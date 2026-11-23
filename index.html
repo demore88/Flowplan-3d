@@ -206,6 +206,21 @@
       pointer-events: none; text-align: center; max-width: 92%;
     }
 
+    #aim-bar {
+      position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 3;
+      pointer-events: auto; display: none; flex-direction: column; align-items: center; gap: 6px;
+      background: rgba(2,6,23,0.86); border: 1px solid #facc15; border-radius: 12px; padding: 8px 10px;
+      width: min(300px, 92%); text-align: center; backdrop-filter: blur(6px);
+    }
+    #aim-text { font-size: 12px; font-weight: 600; line-height: 1.35; }
+    #aim-dist { font-size: 20px; font-weight: 800; color: #facc15; }
+    #measure-modal {
+      position: fixed; inset: 0; background: rgba(2,6,23,0.92); z-index: 100;
+      display: none; align-items: flex-start; justify-content: center; padding: 10px; overflow-y: auto;
+    }
+    #ms-canvas { width: 100%; display: block; touch-action: none; background: #000; border-radius: 8px; }
+    #ms-status { font-size: 12.5px; line-height: 1.4; color: #e2e8f0; }
+
     /* Photo Modal */
     #photo-modal {
       position: fixed; inset: 0; background: rgba(2,6,23,0.88); z-index: 100;
@@ -291,6 +306,18 @@
         </div>
 
         <div class="crosshair"></div>
+
+        <div id="aim-bar">
+          <div id="aim-text">Put the circle where the floor meets the wall</div>
+          <div id="aim-dist">—</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
+            <button class="btn primary" id="aim-mark">📍 Mark Wall 1</button>
+            <button class="btn success" id="aim-use-w" style="display:none;">Use as Width</button>
+            <button class="btn success" id="aim-use-d" style="display:none;">Use as Depth</button>
+            <button class="btn" id="aim-redo" style="display:none;">↺ Redo</button>
+            <button class="btn danger" id="aim-cancel">✕</button>
+          </div>
+        </div>
 
         <div class="hud-bottom-row">
           <div class="rec-pill" id="hud-location-pill">📍 Step 1: Exterior Walk-Around</div>
@@ -400,6 +427,18 @@
           <div class="field">
             <label>Room Depth (ft)</label>
             <input type="number" id="inp-room-d" value="8" min="3" max="50" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Measure Instead Of Typing</label>
+          <div class="view-grid">
+            <button class="btn" id="btn-aim-measure">📐 Aim At Floor</button>
+            <button class="btn" id="btn-object-measure">🚪 From An Object</button>
+          </div>
+          <div class="field-row" style="margin-top:4px;">
+            <label style="flex:1.6;">Phone height while aiming (ft) — chest height is about 4.5</label>
+            <input type="number" id="inp-phone-h" value="4.5" min="2" max="7" step="0.25" style="flex:1;" />
           </div>
         </div>
 
@@ -603,6 +642,42 @@
     </div>
   </div>
 
+  <!-- MEASURE FROM A KNOWN OBJECT -->
+  <div id="measure-modal">
+    <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong style="font-size:14px;color:var(--accent);">Measure From A Known Object</strong>
+        <button class="btn" id="ms-close">✕ Close</button>
+      </div>
+      <div class="field">
+        <label>Object in the photo with a known size</label>
+        <select id="ms-ref">
+          <option value="80">Interior door — height (80 in)</option>
+          <option value="36">Entry door — width (36 in)</option>
+          <option value="60">Standard bathtub — length (60 in)</option>
+          <option value="16">Concrete block — length (16 in)</option>
+          <option value="4.5">Outlet / switch cover — height (4.5 in)</option>
+          <option value="11">Sheet of paper — long side (11 in)</option>
+          <option value="custom">Something else (enter inches)</option>
+        </select>
+        <input type="number" id="ms-custom" placeholder="Length in inches" style="display:none;margin-top:5px;" min="1" />
+      </div>
+      <div class="view-grid">
+        <button class="btn primary" id="ms-take">📷 Take Photo</button>
+        <button class="btn" id="ms-live">🎥 Use Live View</button>
+        <input type="file" id="ms-file" accept="image/*" capture="environment" style="display:none;" />
+      </div>
+      <canvas id="ms-canvas"></canvas>
+      <div id="ms-status">Face the wall straight on with the object on that wall, then take a photo.</div>
+      <div class="view-grid">
+        <button class="btn" id="ms-undo">↩ Undo Point</button>
+        <button class="btn" id="ms-reset">↺ Clear Points</button>
+        <button class="btn success" id="ms-use-w">Use as Width</button>
+        <button class="btn success" id="ms-use-d">Use as Depth</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -697,6 +772,7 @@ const FIX_INFO = {
     const miniCanvas = document.getElementById('minimap-canvas');
     const miniCtx = miniCanvas.getContext('2d');
     let cameraActive = false;
+    let lastOrient = null, aim = null;            // phone tilt + active aim-measure session
     let selectedFixtureId = null;                 // fixture picked in the room layout editor
     let autoDir = false, headingBase = null, headingNow = null;   // compass-driven walking direction
     let currentFacing = "environment";
@@ -1963,6 +2039,10 @@ const FIX_INFO = {
 
     // ---- Compass: turn the phone, the direction buttons follow --------------
     function onOrientation(e) {
+      if (typeof e.beta === "number" && typeof e.gamma === "number") {
+        lastOrient = { alpha: e.alpha || 0, beta: e.beta, gamma: e.gamma };
+        if (aim) updateAimReadout();
+      }
       let h = null;
       if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;       // iPhone
       else if (typeof e.alpha === "number") h = 360 - e.alpha;                           // Android
@@ -2016,6 +2096,193 @@ const FIX_INFO = {
       document.querySelectorAll('.dir-btn').forEach(b => b.classList.toggle('active', b.dataset.dir === "north"));
       flashHud('🎯 "Forward" set to the way you are facing');
     };
+
+// =========================================================================
+    // 8. MEASURING WITHOUT A TAPE
+    // =========================================================================
+    const roundQ = (ft) => Math.max(3, Math.round(ft * 4) / 4);
+    function applyMeasure(which, ft) {
+      const v = roundQ(ft);
+      document.getElementById(which === "w" ? 'inp-room-w' : 'inp-room-d').value = v;
+      flashHud(`📏 Room ${which === "w" ? "width" : "depth"} set to ${fmtFt(v)}`);
+    }
+
+    // ---- A) Aim at the floor: phone height + tilt angle gives distance ------
+    // The crosshair is the centre of the camera. Knowing how high the phone is and how far
+    // down it is tilted, the distance along the floor is  height / tan(tilt).
+    function aimSample() {
+      if (!lastOrient) return null;
+      const r = Math.PI / 180, a = lastOrient.alpha * r, b = lastOrient.beta * r, g = lastOrient.gamma * r;
+      // Direction of the screen's outward axis in world space; the rear camera looks the opposite way
+      const zx = Math.sin(g) * Math.cos(a) + Math.cos(g) * Math.sin(b) * Math.sin(a);
+      const zy = Math.sin(g) * Math.sin(a) - Math.cos(g) * Math.sin(b) * Math.cos(a);
+      const zz = Math.cos(g) * Math.cos(b);
+      const down = Math.asin(Math.max(-1, Math.min(1, zz)));     // how far below level the camera points
+      if (down < 4 * r) return { level: true };
+      const h = Math.max(2, Math.min(7, Number(document.getElementById('inp-phone-h').value) || 4.5));
+      return { dist: h / Math.tan(down), heading: Math.atan2(-zx, -zy) };
+    }
+    function aimResult() {
+      const [m1, m2] = aim.marks;
+      return Math.sqrt(m1.dist * m1.dist + m2.dist * m2.dist - 2 * m1.dist * m2.dist * Math.cos(m1.heading - m2.heading));
+    }
+    function updateAimReadout() {
+      if (!aim) return;
+      const txt = document.getElementById('aim-text'), dist = document.getElementById('aim-dist');
+      const done = aim.marks.length === 2;
+      document.getElementById('aim-mark').style.display = done ? 'none' : '';
+      ['aim-use-w', 'aim-use-d', 'aim-redo'].forEach(id => document.getElementById(id).style.display = done ? '' : 'none');
+      if (done) {
+        txt.textContent = "Wall to wall:";
+        dist.textContent = fmtFt(aimResult());
+        return;
+      }
+      document.getElementById('aim-mark').textContent = aim.marks.length ? "📍 Mark Wall 2" : "📍 Mark Wall 1";
+      txt.textContent = aim.marks.length
+        ? "Stay put. Turn to the opposite wall and put the circle where it meets the floor"
+        : "Put the circle where the floor meets the wall";
+      const sm = aimSample();
+      dist.textContent = !sm ? "Waiting for tilt sensor…" : sm.level ? "Tilt the phone down" : fmtFt(sm.dist) + " away";
+    }
+    function stopAim() {
+      aim = null;
+      document.getElementById('aim-bar').style.display = 'none';
+      document.querySelector('.hud-bottom-row').style.visibility = 'visible';
+    }
+    document.getElementById('btn-aim-measure').onclick = async () => {
+      if (!(await hookOrientation())) { alert("This phone or browser did not allow motion sensor access, so aim-measuring can't work here. Try 🚪 From An Object instead."); return; }
+      if (!cameraActive) startCamera();
+      aim = { marks: [] };
+      document.getElementById('aim-bar').style.display = 'flex';
+      document.querySelector('.hud-bottom-row').style.visibility = 'hidden';
+      updateAimReadout();
+      document.getElementById('camera-stage').scrollIntoView({ block: "start" });
+      setTimeout(() => { if (aim && !lastOrient) { stopAim(); alert("No tilt sensor signal from this device. Try 🚪 From An Object instead."); } }, 2500);
+    };
+    document.getElementById('aim-mark').onclick = () => {
+      const sm = aimSample();
+      if (!sm || sm.level) { alert("Tilt the phone down so the circle sits where the floor meets the wall."); return; }
+      aim.marks.push(sm);
+      updateAimReadout();
+    };
+    document.getElementById('aim-redo').onclick = () => { aim.marks = []; updateAimReadout(); };
+    document.getElementById('aim-cancel').onclick = stopAim;
+    document.getElementById('aim-use-w').onclick = () => { applyMeasure("w", aimResult()); aim.marks = []; updateAimReadout(); };
+    document.getElementById('aim-use-d').onclick = () => { applyMeasure("d", aimResult()); stopAim(); };
+
+    // ---- B) From a known object: mark the object, mark the wall -------------
+    const msCanvas = document.getElementById('ms-canvas'), msCtx = msCanvas.getContext('2d');
+    let msImg = null, msPts = [], msDrag = -1, msFinger = null;
+    const msRefInches = () => {
+      const v = document.getElementById('ms-ref').value;
+      return v === "custom" ? Number(document.getElementById('ms-custom').value) || 0 : Number(v);
+    };
+    function msResultFt() {
+      if (!msImg || msPts.length < 4 || !msRefInches()) return null;
+      const px = (i, j) => Math.hypot((msPts[i].x - msPts[j].x) * msImg.width, (msPts[i].y - msPts[j].y) * msImg.height);
+      const ref = px(0, 1);
+      return ref < 2 ? null : (px(2, 3) / ref) * msRefInches() / 12;
+    }
+    function msDraw() {
+      const cssW = msCanvas.clientWidth || 320;
+      const maxH = Math.max(200, window.innerHeight * 0.5);
+      let cssH = msImg ? cssW * msImg.height / msImg.width : 160;
+      let drawW = cssW, offX = 0;
+      if (cssH > maxH) { drawW = cssW * maxH / cssH; cssH = maxH; offX = (cssW - drawW) / 2; }
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      msCanvas.width = Math.round(cssW * dpr); msCanvas.height = Math.round(cssH * dpr);
+      msCanvas.style.height = cssH + "px";
+      msCanvas._view = { offX, drawW, cssH };
+      const ctx = msCtx; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cssW, cssH);
+      if (!msImg) { ctx.fillStyle = "#64748b"; ctx.font = "600 13px sans-serif"; ctx.textAlign = "center"; ctx.fillText("No photo yet", cssW / 2, cssH / 2); }
+      else ctx.drawImage(msImg, offX, 0, drawW, cssH);
+      const P = (p) => [offX + p.x * drawW, p.y * cssH];
+      [[0, 1, "#facc15"], [2, 3, "#22c55e"]].forEach(([i, j, col]) => {
+        ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.5;
+        if (msPts[i] && msPts[j]) { ctx.beginPath(); ctx.moveTo(...P(msPts[i])); ctx.lineTo(...P(msPts[j])); ctx.stroke(); }
+        [i, j].forEach(k => { if (!msPts[k]) return; const [x, y] = P(msPts[k]);
+          ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.stroke();
+          ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fill(); });
+      });
+      // Magnifier while a point is under your finger, so the exact edge is visible
+      if (msImg && msDrag >= 0 && msPts[msDrag]) {
+        const p = msPts[msDrag], R = 48, zoom = 3;
+        const [fx] = P(p), lx = fx < cssW / 2 ? cssW - R - 6 : R + 6, ly = R + 6;
+        const srcW = (2 * R / zoom) / drawW * msImg.width, srcH = (2 * R / zoom) / cssH * msImg.height;
+        ctx.save(); ctx.beginPath(); ctx.arc(lx, ly, R, 0, Math.PI * 2); ctx.clip();
+        ctx.fillStyle = "#000"; ctx.fillRect(lx - R, ly - R, 2 * R, 2 * R);
+        ctx.drawImage(msImg, p.x * msImg.width - srcW / 2, p.y * msImg.height - srcH / 2, srcW, srcH, lx - R, ly - R, 2 * R, 2 * R);
+        ctx.restore();
+        ctx.strokeStyle = msDrag < 2 ? "#facc15" : "#22c55e"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(lx, ly, R, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(lx - 10, ly); ctx.lineTo(lx + 10, ly); ctx.moveTo(lx, ly - 10); ctx.lineTo(lx, ly + 10); ctx.stroke();
+      }
+      const st = document.getElementById('ms-status'), res = msResultFt();
+      if (!msImg) st.textContent = "Face the wall straight on with the object on that wall, then take a photo.";
+      else if (msPts.length < 2) st.innerHTML = `<strong style="color:#facc15;">Step 1:</strong> touch each end of the known object (${msPts.length}/2). Slide your finger to fine-tune.`;
+      else if (msPts.length < 4) st.innerHTML = `<strong style="color:#22c55e;">Step 2:</strong> touch each end of the wall you want measured (${msPts.length - 2}/2).`;
+      else if (res === null) st.textContent = "Enter the object's length in inches.";
+      else st.innerHTML = `Wall length: <strong style="color:#22c55e;font-size:17px;">${fmtFt(res)}</strong> — drag any dot to adjust.`;
+    }
+    function msPoint(e) {
+      const rect = msCanvas.getBoundingClientRect(), v = msCanvas._view;
+      return { x: Math.max(0, Math.min(1, (e.clientX - rect.left - v.offX) / v.drawW)), y: Math.max(0, Math.min(1, (e.clientY - rect.top) / v.cssH)) };
+    }
+    msCanvas.addEventListener('pointerdown', (e) => {
+      if (!msImg) return;
+      const p = msPoint(e), v = msCanvas._view;
+      let best = -1, bestD = 26;
+      msPts.forEach((q, i) => { const d = Math.hypot((q.x - p.x) * v.drawW, (q.y - p.y) * v.cssH); if (d < bestD) { bestD = d; best = i; } });
+      if (best < 0 && msPts.length < 4) { msPts.push(p); best = msPts.length - 1; }
+      msDrag = best;
+      if (best >= 0) msCanvas.setPointerCapture(e.pointerId);
+      msDraw();
+    });
+    msCanvas.addEventListener('pointermove', (e) => { if (msDrag < 0) return; msPts[msDrag] = msPoint(e); msDraw(); });
+    const msEnd = () => { msDrag = -1; msDraw(); };
+    msCanvas.addEventListener('pointerup', msEnd);
+    msCanvas.addEventListener('pointercancel', msEnd);
+
+    function msSetImage(src) {
+      const img = new Image();
+      img.onload = () => { msImg = img; msPts = []; msDraw(); };
+      img.onerror = () => alert("Could not read that photo.");
+      img.src = src;
+    }
+    document.getElementById('btn-object-measure').onclick = () => {
+      document.getElementById('measure-modal').style.display = 'flex';
+      msDraw();
+    };
+    document.getElementById('ms-close').onclick = () => document.getElementById('measure-modal').style.display = 'none';
+    document.getElementById('ms-take').onclick = () => document.getElementById('ms-file').click();
+    document.getElementById('ms-file').onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      msSetImage(URL.createObjectURL(file)); e.target.value = "";
+    };
+    document.getElementById('ms-live').onclick = () => {
+      if (!(cameraActive && videoEl.readyState >= 2)) { alert("Start the live camera first, or tap 📷 Take Photo."); return; }
+      const cap = document.createElement('canvas');
+      cap.width = videoEl.videoWidth; cap.height = videoEl.videoHeight;
+      cap.getContext('2d').drawImage(videoEl, 0, 0);
+      msSetImage(cap.toDataURL('image/jpeg', 0.85));
+    };
+    document.getElementById('ms-ref').onchange = (e) => {
+      document.getElementById('ms-custom').style.display = e.target.value === "custom" ? 'block' : 'none';
+      msDraw();
+    };
+    document.getElementById('ms-custom').oninput = msDraw;
+    document.getElementById('ms-undo').onclick = () => { msPts.pop(); msDraw(); };
+    document.getElementById('ms-reset').onclick = () => { msPts = []; msDraw(); };
+    const msUse = (which, close) => {
+      const res = msResultFt();
+      if (res === null) { alert("Mark both ends of the object and both ends of the wall first."); return; }
+      applyMeasure(which, res);
+      if (close) document.getElementById('measure-modal').style.display = 'none';
+      else { msPts = msPts.slice(0, 2); msDraw(); }     // keep the object marked, measure another span
+    };
+    document.getElementById('ms-use-w').onclick = () => msUse("w", true);
+    document.getElementById('ms-use-d').onclick = () => msUse("d", true);
 
     animate();
     updateWalkUI();

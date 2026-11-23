@@ -1,5 +1,5 @@
 // FlowPlan 3D service worker — lets the app open with no signal (basements, crawlspaces).
-const VERSION = "flowplan3d-v1.2.0";
+const VERSION = "flowplan3d-v1.3.0";
 const SHELL = [
   "./",
   "./index.html",
