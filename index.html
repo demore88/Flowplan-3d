@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FlowPlan 3D" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>FlowPlan 3D — Live Video Building & Sewer Schematic Studio</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: rgba(15, 23, 42, 0.94);
+      --panel-solid: #0f172a;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --sewer: #22c55e;
+      --vent: #f97316;
+      --supply: #3b82f6;
+      --storm: #a855f7;
+      --danger: #ef4444;
+      --top: calc(54px + env(safe-area-inset-top, 0px));
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background: var(--bg); color: var(--text); overflow: hidden; height: 100dvh; width: 100vw; user-select: none; }
+
+    /* Top Header Bar */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; height: var(--top); padding-top: env(safe-area-inset-top, 0px) !important; z-index: 40;
+      background: var(--panel-solid); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; padding: 0 10px; gap: 6px;
+    }
+    .brand { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; white-space: nowrap; }
+    .brand-badge { background: linear-gradient(135deg, #0ea5e9, #22c55e); color: #020617; font-weight: 800; padding: 3px 6px; border-radius: 6px; font-size: 11px; }
+
+    .mode-switch { display: flex; background: #1e293b; border-radius: 8px; padding: 3px; border: 1px solid var(--border); }
+    .mode-btn {
+      background: transparent; border: none; color: var(--muted); padding: 6px 10px;
+      border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.15s; white-space: nowrap;
+    }
+    .mode-btn.active { background: var(--accent); color: #020617; }
+
+    .top-actions { display: flex; gap: 5px; align-items: center; }
+    .btn {
+      background: #1e293b; color: var(--text); border: 1px solid var(--border);
+      padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: 0.15s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:hover { background: #334155; }
+    .btn.primary { background: var(--accent); color: #020617; border-color: var(--accent); }
+    .btn.success { background: var(--sewer); color: #020617; border-color: var(--sewer); }
+    .btn.danger { background: rgba(239,68,68,0.18); color: #fca5a5; border-color: var(--danger); }
+    .btn.active-tool { background: #eab308; color: #020617; border-color: #facc15; }
+
+    /* ================= WALKTHROUGH MODE ================= */
+    #walkthrough-view {
+      position: fixed; top: var(--top); left: 0; right: 0; bottom: 0; z-index: 20;
+      display: flex; background: #000;
+    }
+    #camera-stage { position: relative; flex: 1; overflow: hidden; background: #020617; }
+    #live-video, #sim-canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    }
+    #hud-overlay {
+      position: absolute; inset: 0; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between; padding: 10px;
+    }
+    .hud-top-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .rec-pill {
+      pointer-events: auto; background: rgba(2,6,23,0.82); border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+      display: flex; align-items: center; gap: 6px; backdrop-filter: blur(6px); flex-wrap: wrap;
+    }
+    .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: pulse 1.2s infinite; flex-shrink: 0; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .minimap-box {
+      pointer-events: auto; width: 190px; height: 155px; background: rgba(2,6,23,0.86);
+      border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; position: relative;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.5); flex-shrink: 0;
+    }
+    .minimap-label {
+      position: absolute; top: 4px; left: 7px; font-size: 9px; font-weight: 700;
+      color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; z-index: 2;
+    }
+    #minimap-canvas { width: 100%; height: 100%; display: block; }
+
+    .crosshair {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 40px; height: 40px; border: 2px solid rgba(56,189,248,0.65); border-radius: 50%;
+    }
+    .crosshair::after {
+      content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 6px; height: 6px; background: var(--accent); border-radius: 50%;
+    }
+
+    .hud-bottom-row {
+      display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; pointer-events: auto;
+    }
+
+    /* Walkthrough Right/Bottom Panel */
+    #walk-panel {
+      width: 380px; max-width: 100%; background: var(--panel-solid); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow-y: auto; padding: 12px; gap: 10px; z-index: 25;
+      -webkit-overflow-scrolling: touch;
+    }
+    .step-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .step-tab {
+      background: #1e293b; border: 1px solid var(--border); color: var(--muted);
+      padding: 10px 4px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; text-align: center;
+    }
+    .step-tab.active { background: rgba(56,189,248,0.22); border-color: var(--accent); color: var(--accent); }
+
+    .card {
+      background: #131c31; border: 1px solid #26344d; border-radius: 10px; padding: 12px;
+      display: flex; flex-direction: column; gap: 9px;
+    }
+    .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--accent); }
+    .field-row { display: flex; gap: 8px; align-items: center; }
+    .field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 11px; color: var(--muted); font-weight: 600; }
+    input, select {
+      background: #0b1120; border: 1px solid var(--border); color: var(--text);
+      padding: 9px 10px; border-radius: 7px; font-size: 14px; width: 100%;
+    }
+
+    .room-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .room-tag-btn {
+      background: #1e293b; border: 1px solid #334155; color: var(--text);
+      padding: 12px 8px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 700;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+    }
+    .room-tag-btn:active { border-color: var(--accent); background: #26364f; transform: scale(0.98); }
+    .room-tag-btn span { font-size: 10px; color: var(--muted); font-weight: 500; }
+
+    .fixture-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .fix-btn {
+      background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+      padding: 9px 4px; border-radius: 7px; cursor: pointer; font-size: 11px; font-weight: 600; text-align: center;
+    }
+    .fix-btn:active { border-color: var(--sewer); color: #86efac; }
+
+    .dir-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    .dir-btn {
+      background: #0b1120; border: 1px solid var(--border); color: var(--muted);
+      padding: 8px 4px; border-radius: 7px; font-size: 11px; font-weight: 700; cursor: pointer;
+    }
+    .dir-btn.active { background: var(--accent); color: #020617; border-color: var(--accent); }
+
+    .log-list { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+    .log-item {
+      background: #0b1120; border: 1px solid #1e293b; border-radius: 6px; padding: 7px 8px;
+      font-size: 11px; display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    }
+
+    /* ================= 3D / 2D STUDIO MODE ================= */
+    #studio-view {
+      position: fixed; top: var(--top); left: 0; right: 0; bottom: 0; z-index: 10; display: none;
+    }
+    #three-container { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+    #three-container.drawing-cursor { cursor: crosshair; }
+
+    /* Mobile Studio Drawer Toggles */
+    #studio-mobile-bar {
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 18;
+      display: none; justify-content: space-between; pointer-events: none;
+    }
+    #studio-mobile-bar button { pointer-events: auto; box-shadow: 0 4px 14px rgba(0,0,0,0.45); }
+
+    #studio-left {
+      position: absolute; top: 12px; left: 12px; width: 270px; max-height: calc(100% - 24px);
+      overflow-y: auto; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+      backdrop-filter: blur(8px); z-index: 17; -webkit-overflow-scrolling: touch;
+    }
+    #studio-right {
+      position: absolute; top: 12px; right: 12px; width: 255px; max-height: calc(100% - 24px);
+      overflow-y: auto; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+      backdrop-filter: blur(8px); z-index: 17; -webkit-overflow-scrolling: touch;
+    }
+    .view-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .sys-pill {
+      padding: 8px 6px; border-radius: 7px; font-size: 11px; font-weight: 700; cursor: pointer;
+      border: 2px solid transparent; text-align: center; color: #fff; opacity: 0.72;
+    }
+    .sys-pill.active { opacity: 1; border-color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+
+    #status-banner {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(2,6,23,0.9); border: 1px solid var(--accent); color: var(--text);
+      padding: 7px 14px; border-radius: 24px; font-size: 11px; font-weight: 600; z-index: 16;
+      pointer-events: none; text-align: center; max-width: 92%;
+    }
+
+    /* Photo Modal */
+    #photo-modal {
+      position: fixed; inset: 0; background: rgba(2,6,23,0.88); z-index: 100;
+      display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-box {
+      background: var(--panel-solid); border: 1px solid var(--border); border-radius: 12px;
+      max-width: 540px; width: 100%; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .modal-box img { width: 100%; max-height: 320px; object-fit: contain; background: #000; border-radius: 8px; }
+
+    /* Responsive Phone Layout */
+    @media (max-width: 860px) {
+      .brand span:last-child { display: none; }
+      .top-actions .hide-sm { display: none; }
+      .top-actions .btn { padding: 8px 8px; }
+      .mode-btn { padding: 6px 7px; font-size: 11px; }
+      #walkthrough-view { flex-direction: column; }
+      #camera-stage { height: 42%; flex: none; }
+      #walk-panel { width: 100%; height: 58%; border-left: none; border-top: 1px solid var(--border); padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+      .minimap-box { width: 132px; height: 104px; }
+
+      #studio-mobile-bar { display: flex; }
+      #studio-left, #studio-right {
+        top: 54px; max-height: calc(100% - 108px); width: min(290px, calc(100vw - 24px));
+      }
+      #studio-left.collapsed, #studio-right.collapsed { display: none; }
+    }
+    @media (max-width: 480px) { .brand { display: none; } #topbar { justify-content: space-between; } }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- TOP NAVIGATION -->
+  <header id="topbar">
+    <div class="brand">
+      <span class="brand-badge">FP3D</span>
+      <span>FlowPlan 3D</span>
+    </div>
+
+    <div class="mode-switch">
+      <button class="mode-btn active" id="btn-mode-walk">📹 Walkthrough</button>
+      <button class="mode-btn" id="btn-mode-studio">📐 3D/2D Studio</button>
+    </div>
+
+    <div class="top-actions">
+      <button class="btn" id="btn-load-demo" title="Load sample 2-story multi-unit building">🏢 <span class="hide-sm">Demo</span></button>
+      <button class="btn" id="btn-import-json" title="Load project JSON">📂<span class="hide-sm"> Load</span></button>
+      <input type="file" id="inp-import-json" accept="application/json,.json" style="display:none;" />
+      <button class="btn" id="btn-export-json" title="Save project JSON">💾</button>
+      <button class="btn primary" id="btn-export-png" title="Export Blueprint PNG">🖼️</button>
+    </div>
+  </header>
+
+  <!-- ================= MODE 1: LIVE VIDEO WALKTHROUGH ================= -->
+  <section id="walkthrough-view">
+    <div id="camera-stage">
+      <video id="live-video" autoplay playsinline muted></video>
+      <canvas id="sim-canvas"></canvas>
+
+      <div id="hud-overlay">
+        <div class="hud-top-row">
+          <div class="rec-pill">
+            <span class="rec-dot"></span>
+            <span id="cam-status-text">TAP START CAMERA</span>
+            <button class="btn primary" id="btn-toggle-cam" style="padding:4px 9px;font-size:11px;">Start Camera</button>
+            <button class="btn" id="btn-flip-cam" style="padding:4px 7px;font-size:11px;" title="Switch Rear/Front Camera">🔄</button>
+          </div>
+
+          <div class="minimap-box">
+            <div class="minimap-label">Live Map</div>
+            <canvas id="minimap-canvas" width="190" height="155"></canvas>
+          </div>
+        </div>
+
+        <div class="crosshair"></div>
+
+        <div class="hud-bottom-row">
+          <div class="rec-pill" id="hud-location-pill">📍 Step 1: Exterior Walk-Around</div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn" id="btn-native-photo" style="padding:9px 11px; border-radius:20px;" title="Use Phone Native Camera">📷</button>
+            <input type="file" id="inp-native-photo" accept="image/*" capture="environment" style="display:none;" />
+            <button class="btn primary" id="btn-snap-photo" style="padding:9px 14px; font-size:12px; border-radius:20px;">
+              📸 Pin Photo
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WALKTHROUGH STEP CONTROLS -->
+    <aside id="walk-panel">
+      <div class="step-tabs">
+        <button class="step-tab active" data-step="building">1. Building</button>
+        <button class="step-tab" data-step="unit">2. Unit</button>
+        <button class="step-tab" data-step="room">3. Rooms</button>
+      </div>
+
+      <!-- STEP 1: BUILDING EXTERIOR -->
+      <div class="card step-pane" id="pane-building">
+        <h3>Step 1: Exterior Video Walk-Around</h3>
+        <p style="font-size:11px;color:var(--muted);line-height:1.4;">
+          Walk around the building with live video, set the overall footprint, and mark which side the main sewer exits.
+        </p>
+        <div class="field">
+          <label>Building Name / Address</label>
+          <input id="inp-bldg-name" value="1420 Oak Ridge Duplex" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Width (ft)</label>
+            <input type="number" id="inp-bldg-w" value="34" min="12" max="200" />
+          </div>
+          <div class="field">
+            <label>Depth (ft)</label>
+            <input type="number" id="inp-bldg-d" value="28" min="12" max="200" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Main Sewer Exit Side</label>
+          <select id="inp-sewer-side">
+            <option value="south">Front / Street Side (South)</option>
+            <option value="north">Rear Alley (North)</option>
+            <option value="west">Left Side (West)</option>
+            <option value="east">Right Side (East)</option>
+          </select>
+        </div>
+        <button class="btn success" id="btn-mark-building">✅ Mark Building & Main Sewer Exit</button>
+        <button class="btn primary" id="btn-goto-unit">Next: Enter First Unit →</button>
+        <button class="btn danger" id="btn-reset-project" style="margin-top:4px;">🗑️ Start Blank Building</button>
+      </div>
+
+      <!-- STEP 2: ENTER UNIT -->
+      <div class="card step-pane" id="pane-unit" style="display:none;">
+        <h3>Step 2: Mark Unit Upon Entry</h3>
+        <p style="font-size:11px;color:var(--muted);line-height:1.4;">
+          Mark each unit as you walk through its door (e.g., Unit 101 Downstairs, Unit 201 Upstairs, Basement).
+        </p>
+        <div class="field">
+          <label>Unit Label</label>
+          <input id="inp-unit-name" value="Unit 101" placeholder="e.g., Unit 101, Unit 201, Basement" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Floor Level</label>
+            <select id="inp-unit-floor">
+              <option value="-1">Basement (-9 ft)</option>
+              <option value="0" selected>1st Floor / Downstairs</option>
+              <option value="1">2nd Floor / Upstairs</option>
+              <option value="2">3rd Floor</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Building Side</label>
+            <select id="inp-unit-zone">
+              <option value="left">Left / West Side</option>
+              <option value="right">Right / East Side</option>
+              <option value="full">Full Floor</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn success" id="btn-enter-unit">🚪 Enter & Activate Unit</button>
+
+        <div style="margin-top:4px;">
+          <label style="font-size:11px;color:var(--muted);font-weight:700;">Recorded Units:</label>
+          <div class="log-list" id="unit-list" style="margin-top:5px;"></div>
+        </div>
+      </div>
+
+      <!-- STEP 3: WALK INTO ROOMS & TAG -->
+      <div class="card step-pane" id="pane-room" style="display:none;">
+        <h3>Step 3: Tag Rooms As You Walk In</h3>
+        <div class="field">
+          <label>Active Unit</label>
+          <select id="sel-active-unit"></select>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Room Width (ft)</label>
+            <input type="number" id="inp-room-w" value="9" min="3" max="50" />
+          </div>
+          <div class="field">
+            <label>Room Depth (ft)</label>
+            <input type="number" id="inp-room-d" value="8" min="3" max="50" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Next Room Position From Current Room</label>
+          <div class="dir-grid">
+            <button class="dir-btn active" data-dir="east">→ Right</button>
+            <button class="dir-btn" data-dir="south">↓ Fwd</button>
+            <button class="dir-btn" data-dir="west">← Left</button>
+            <button class="dir-btn" data-dir="north">↑ Back</button>
+          </div>
+        </div>
+
+        <label style="font-size:11px;color:var(--muted);font-weight:700;">Tap Room Type:</label>
+        <div class="room-grid">
+          <button class="room-tag-btn" data-room="Bathroom">🛁 Bathroom <span>+ Toilet, Sink, Tub</span></button>
+          <button class="room-tag-btn" data-room="Kitchen">🍳 Kitchen <span>+ Double Sink</span></button>
+          <button class="room-tag-btn" data-room="Closet">🚪 Closet <span>Compact Outline</span></button>
+          <button class="room-tag-btn" data-room="Utility">🧺 Laundry/Util <span>+ Heater, Drain</span></button>
+          <button class="room-tag-btn" data-room="Living">🛋️ Living / Bed <span>Open Room</span></button>
+          <button class="room-tag-btn" data-room="Hallway">🚶 Hall / Stairs <span>Connector</span></button>
+        </div>
+
+        <label style="font-size:11px;color:var(--muted);font-weight:700;margin-top:4px;">Drop Extra Fixture In Room:</label>
+        <div class="fixture-grid">
+          <button class="fix-btn" data-fix="toilet">🚽 +Toilet</button>
+          <button class="fix-btn" data-fix="sink">🚰 +Sink</button>
+          <button class="fix-btn" data-fix="tub">🛁 +Tub</button>
+          <button class="fix-btn" data-fix="drain">🕳️ +Drain</button>
+          <button class="fix-btn" data-fix="cleanout">🔧 +Cleanout</button>
+          <button class="fix-btn" data-fix="heater">🔥 +Heater</button>
+        </div>
+
+        <button class="btn primary" id="btn-finish-to-studio" style="margin-top:6px; padding:11px;">
+          📐 Open 3D/2D Blueprint & Draw Sewer →
+        </button>
+      </div>
+
+      <!-- SCANNED ROOMS LOG -->
+      <div class="card">
+        <h3>Scanned Rooms (<span id="count-rooms">0</span>)</h3>
+        <div class="log-list" id="room-log-list"></div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ================= MODE 2: 3D / 2D SEWER STUDIO ================= -->
+  <section id="studio-view">
+    <div id="three-container"></div>
+
+    <!-- Mobile Drawer Toggles -->
+    <div id="studio-mobile-bar">
+      <button class="btn primary" id="btn-toggle-left">🛠️ Draw & Views</button>
+      <button class="btn" id="btn-toggle-right">📊 Takeoff & Photos</button>
+    </div>
+
+    <!-- LEFT STUDIO PANEL -->
+    <aside id="studio-left" class="collapsed">
+      <h3 style="font-size:12px;color:var(--accent);text-transform:uppercase;">Camera Angle & View</h3>
+      <div class="view-grid">
+        <button class="btn" id="cam-2d">🗺️ 2D Plan</button>
+        <button class="btn" id="cam-xray">👁️ 3D X-Ray</button>
+        <button class="btn" id="cam-iso">📐 Isometric</button>
+        <button class="btn" id="cam-side">🧱 Cutaway</button>
+      </div>
+
+      <div class="field">
+        <label>Wall Opacity (X-Ray): <span id="lbl-opacity">35%</span></label>
+        <input type="range" id="rng-opacity" min="0" max="100" value="35" />
+      </div>
+
+      <div class="field">
+        <label>Floor Filter</label>
+        <select id="sel-floor-filter">
+          <option value="all">All Floors Stacked</option>
+          <option value="-1">Basement Only</option>
+          <option value="0">1st Floor Only</option>
+          <option value="1">2nd Floor Only</option>
+          <option value="2">3rd Floor Only</option>
+        </select>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);" />
+
+      <h3 style="font-size:12px;color:var(--sewer);text-transform:uppercase;">Sewer & Plumbing Draw</h3>
+      <button class="btn" id="btn-draw-pipe" style="padding:10px;">
+        ✏️ Draw Sewer Mode: OFF
+      </button>
+
+      <div class="view-grid">
+        <div class="sys-pill active" data-sys="sewer" style="background:#16a34a;">Sanitary Sewer</div>
+        <div class="sys-pill" data-sys="vent" style="background:#ea580c;">Vent Stack</div>
+        <div class="sys-pill" data-sys="storm" style="background:#9333ea;">Storm Drain</div>
+        <div class="sys-pill" data-sys="supply" style="background:#2563eb;">Water Supply</div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Pipe Size</label>
+          <select id="sel-pipe-dia">
+            <option value="4" selected>4" Main</option>
+            <option value="3">3" Stack/WC</option>
+            <option value="2">2" Branch</option>
+            <option value="1.5">1.5" Lav/Vent</option>
+            <option value="0.75">3/4" Supply</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Draw Plane</label>
+          <select id="sel-draw-plane">
+            <option value="-11">Under-Slab (-11')</option>
+            <option value="-8.5">Basement (-8.5')</option>
+            <option value="-0.5" selected>1st Floor (-0.5')</option>
+            <option value="9.5">2nd Floor (+9.5')</option>
+            <option value="19.5">3rd Floor (+19.5')</option>
+          </select>
+        </div>
+      </div>
+
+      <label style="font-size:11px;color:var(--muted);font-weight:600;">Vertical Drops / Risers:</label>
+      <div class="view-grid">
+        <button class="btn" id="btn-drop-floor">⬇ Drop 1 Floor</button>
+        <button class="btn" id="btn-rise-vent">⬆ Rise Vent +10'</button>
+        <button class="btn" id="btn-drop-slab">⬇ Drop to Trench</button>
+        <button class="btn" id="btn-finish-chain">⏹ End Run</button>
+      </div>
+
+      <div class="view-grid">
+        <button class="btn danger" id="btn-undo-pipe">↩ Undo Pipe</button>
+        <button class="btn danger" id="btn-clear-pipes">🗑️ Clear Pipes</button>
+      </div>
+    </aside>
+
+    <!-- RIGHT STUDIO INSPECTOR -->
+    <aside id="studio-right" class="collapsed">
+      <h3 style="font-size:12px;color:var(--accent);text-transform:uppercase;">Building Summary</h3>
+      <div id="summary-stats" style="font-size:12px; color:#cbd5e1; line-height:1.5;"></div>
+
+      <hr style="border:none;border-top:1px solid var(--border);" />
+
+      <h3 style="font-size:12px;color:var(--sewer);text-transform:uppercase;">Pipe Takeoff (Linear Ft)</h3>
+      <div id="pipe-takeoff" style="font-size:12px; color:#e2e8f0; display:flex; flex-direction:column; gap:4px;"></div>
+
+      <hr style="border:none;border-top:1px solid var(--border);" />
+
+      <h3 style="font-size:12px;color:#facc15;text-transform:uppercase;">Pinned Site Photos</h3>
+      <div id="photo-list" class="log-list"></div>
+    </aside>
+
+    <div id="status-banner">Drag to orbit any angle • Pinch/scroll to zoom • Tap Draw Mode to map sewer</div>
+  </section>
+
+  <!-- PHOTO VIEWER MODAL -->
+  <div id="photo-modal">
+    <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong id="modal-photo-title" style="font-size:14px;color:var(--accent);">Pinned Site Photo</strong>
+        <button class="btn" id="btn-close-modal">✕ Close</button>
+      </div>
+      <img id="modal-photo-img" src="" alt="Site photo" />
+      <div class="field">
+        <label>Field / Plumbing Note</label>
+        <input id="modal-photo-note" placeholder="e.g., 4-inch cast iron stack behind vanity..." />
+      </div>
+      <button class="btn primary" id="btn-save-note">Save Note</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // =========================================================================
+    // 1. STATE & AUTO-SAVE
+    // =========================================================================
+    const STORAGE_KEY = "flowplan3d_v1_state";
+    const FLOOR_Y = { "-1": -9, "0": 0, "1": 10, "2": 20 };
+    const FLOOR_NAMES = { "-1": "Basement", "0": "1st Floor", "1": "2nd Floor", "2": "3rd Floor" };
+    const SYSTEM_COLORS = {
+      sewer:  { hex: 0x22c55e, label: "Sanitary Sewer" },
+      vent:   { hex: 0xf97316, label: "Vent Stack" },
+      storm:  { hex: 0xa855f7, label: "Storm Drain" },
+      supply: { hex: 0x3b82f6, label: "Water Supply" }
+    };
+    const UNIT_COLORS = ["#38bdf8", "#f472b6", "#facc15", "#a78bfa", "#34d399", "#fb923c"];
+    const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 8)}`;
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    // Merge loaded data over a blank project so missing/invalid fields can't break the app
+    function normalizeState(raw) {
+      const base = createBlankState();
+      const s = { ...base, ...(raw && typeof raw === "object" ? raw : {}) };
+      s.building = { ...base.building, ...(s.building || {}) };
+      ["units", "rooms", "photos", "pipeNodes", "pipes"].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
+      s.rooms.forEach(r => { if (!Array.isArray(r.fixtures)) r.fixtures = []; });
+      return s;
+    }
+
+    function createBlankState() {
+      return {
+        building: { name: "1420 Oak Ridge Duplex", width: 34, depth: 28, sewerExitSide: "south", marked: false },
+        units: [],
+        rooms: [],
+        photos: [],
+        pipeNodes: [],
+        pipes: [],
+        activeUnitId: null,
+        activeRoomId: null,
+        walkDir: "east"
+      };
+    }
+
+    let state = createBlankState();
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) state = normalizeState(JSON.parse(saved));
+    } catch { /* ignore storage errors */ }
+
+    let storageWarned = false;
+    function persistState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        // If too many large photos fill localStorage, save layout without photo blobs
+        try {
+          const light = { ...state, photos: [] };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(light));
+          if (!storageWarned) {
+            storageWarned = true;
+            alert("Phone storage for this app is full. Your layout and pipes are still auto-saved, but photos are NOT.\nTap 💾 to save a project file that includes the photos.");
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    // =========================================================================
+    // 2. LIVE CAMERA (REAR/FRONT + DIAGNOSTICS + NATIVE PHOTO FALLBACK)
+    // =========================================================================
+    const videoEl = document.getElementById('live-video');
+    const simCanvas = document.getElementById('sim-canvas');
+    const simCtx = simCanvas.getContext('2d');
+    const miniCanvas = document.getElementById('minimap-canvas');
+    const miniCtx = miniCanvas.getContext('2d');
+    let cameraActive = false;
+    let currentFacing = "environment";
+    let simFrame = 0;
+
+    async function startCamera() {
+      const statusEl = document.getElementById('cam-status-text');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.textContent = "HTTPS REQUIRED FOR LIVE CAM";
+        alert("Your browser blocks live camera on local file:// pages.\nOpen this app via your GitHub Pages https:// link in Safari or Chrome to enable live video (or use the 📷 native photo button).");
+        return;
+      }
+
+      stopCamera(false);
+      try {
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: currentFacing }, width: { ideal: 1280 } },
+            audio: false
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        videoEl.srcObject = stream;
+        await videoEl.play();
+        cameraActive = true;
+        simCanvas.style.display = 'none';
+        statusEl.textContent = currentFacing === "environment" ? "REAR CAM LIVE" : "FRONT CAM LIVE";
+        document.getElementById('btn-toggle-cam').textContent = "Stop";
+      } catch (err) {
+        cameraActive = false;
+        simCanvas.style.display = 'block';
+        statusEl.textContent = `CAM BLOCKED (${err.name})`;
+        alert(`Could not start live camera (${err.name}).\nCheck Safari/Chrome camera permissions in your phone Settings, or tap the 📷 button to take photos with your phone's native camera.`);
+      }
+    }
+
+    function stopCamera(updateLabel = true) {
+      if (videoEl.srcObject) {
+        videoEl.srcObject.getTracks().forEach(t => t.stop());
+        videoEl.srcObject = null;
+      }
+      cameraActive = false;
+      simCanvas.style.display = 'block';
+      if (updateLabel) {
+        document.getElementById('cam-status-text').textContent = "CAMERA PAUSED";
+        document.getElementById('btn-toggle-cam').textContent = "Start Camera";
+      }
+    }
+
+    document.getElementById('btn-toggle-cam').onclick = () => { if (cameraActive) stopCamera(); else startCamera(); };
+    document.getElementById('btn-flip-cam').onclick = () => {
+      currentFacing = currentFacing === "environment" ? "user" : "environment";
+      if (cameraActive) startCamera();
+    };
+
+    function animateSimVideo() {
+      requestAnimationFrame(animateSimVideo);
+      if (cameraActive || document.getElementById('walkthrough-view').style.display === 'none') return;
+      const w = simCanvas.width = simCanvas.clientWidth || 480;
+      const h = simCanvas.height = simCanvas.clientHeight || 300;
+      simFrame += 0.025;
+
+      const grad = simCtx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, "#0f172a");
+      grad.addColorStop(0.55, "#1e293b");
+      grad.addColorStop(1, "#090d16");
+      simCtx.fillStyle = grad;
+      simCtx.fillRect(0, 0, w, h);
+
+      const swayX = Math.sin(simFrame * 0.8) * 24;
+      const swayY = Math.cos(simFrame * 1.5) * 5;
+      const horizonY = h * 0.48 + swayY;
+      simCtx.strokeStyle = "rgba(56, 189, 248, 0.22)";
+      simCtx.lineWidth = 1;
+      for (let i = -7; i <= 7; i++) {
+        simCtx.beginPath();
+        simCtx.moveTo(w / 2 + i * 28 + swayX * 0.3, horizonY);
+        simCtx.lineTo(w / 2 + i * 140 + swayX, h);
+        simCtx.stroke();
+      }
+      for (let j = 1; j <= 7; j++) {
+        const y = horizonY + Math.pow(j / 7, 1.7) * (h - horizonY);
+        simCtx.beginPath(); simCtx.moveTo(0, y); simCtx.lineTo(w, y); simCtx.stroke();
+      }
+      simCtx.strokeStyle = "rgba(34, 197, 94, 0.45)";
+      simCtx.lineWidth = 2;
+      simCtx.strokeRect(w * 0.22 + swayX * 0.3, h * 0.22 + swayY, w * 0.56, h * 0.52);
+    }
+    animateSimVideo();
+
+    function drawMiniMap() {
+      const ctx = miniCtx;
+      const cw = miniCanvas.width, ch = miniCanvas.height;
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.fillStyle = "#060c19";
+      ctx.fillRect(0, 0, cw, ch);
+
+      const bw = state.building.width || 34;
+      const bd = state.building.depth || 28;
+      const scale = Math.min((cw - 28) / bw, (ch - 34) / bd);
+      const ox = cw / 2, oy = ch / 2 + 5;
+
+      ctx.strokeStyle = state.building.marked ? "#38bdf8" : "#334155";
+      ctx.lineWidth = 2;
+      ctx.setLineDash(state.building.marked ? [] : [4, 4]);
+      ctx.strokeRect(ox - (bw * scale) / 2, oy - (bd * scale) / 2, bw * scale, bd * scale);
+      ctx.setLineDash([]);
+
+      const activeUnit = state.units.find(u => u.id === state.activeUnitId);
+      const showFloor = activeUnit ? activeUnit.floor : 0;
+
+      state.rooms.filter(r => r.floor === showFloor).forEach(r => {
+        const unit = state.units.find(u => u.id === r.unitId);
+        const rx = ox + (r.x - r.w / 2) * scale;
+        const rz = oy + (r.z - r.d / 2) * scale;
+        ctx.fillStyle = r.id === state.activeRoomId ? "rgba(56,189,248,0.28)" : "rgba(30,41,59,0.75)";
+        ctx.strokeStyle = unit ? unit.color : "#94a3b8";
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(rx, rz, r.w * scale, r.d * scale);
+        ctx.strokeRect(rx, rz, r.w * scale, r.d * scale);
+
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "bold 8px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(r.type.slice(0, 7), ox + r.x * scale, oy + r.z * scale + 3);
+
+        r.fixtures.forEach(f => {
+          ctx.fillStyle = f.type === "toilet" ? "#22c55e" : f.type === "sink" ? "#38bdf8" : "#facc15";
+          ctx.beginPath();
+          ctx.arc(ox + (r.x + f.rx) * scale, oy + (r.z + f.rz) * scale, 2.3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      });
+
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "9px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(FLOOR_NAMES[String(showFloor)] || "1st Floor", cw - 6, ch - 5);
+    }
+
+    // =========================================================================
+    // 3. WALKTHROUGH FLOW (BUILDING -> UNIT -> ROOMS -> FIXTURES -> PHOTOS)
+    // =========================================================================
+    function setWalkStep(step) {
+      document.querySelectorAll('.step-tab').forEach(b => b.classList.toggle('active', b.dataset.step === step));
+      document.querySelectorAll('.step-pane').forEach(p => p.style.display = 'none');
+      document.getElementById(`pane-${step}`).style.display = 'flex';
+    }
+    document.querySelectorAll('.step-tab').forEach(btn => btn.onclick = () => setWalkStep(btn.dataset.step));
+
+    document.getElementById('btn-mark-building').onclick = () => {
+      state.building.name = document.getElementById('inp-bldg-name').value.trim() || "Building";
+      state.building.width = Math.max(12, Number(document.getElementById('inp-bldg-w').value) || 34);
+      state.building.depth = Math.max(12, Number(document.getElementById('inp-bldg-d').value) || 28);
+      state.building.sewerExitSide = document.getElementById('inp-sewer-side').value;
+      state.building.marked = true;
+      persistState(); updateWalkUI(); rebuild3DScene();
+      flashHud(`✅ Marked ${state.building.name} (${state.building.width}'×${state.building.depth}')`);
+    };
+
+    document.getElementById('btn-goto-unit').onclick = () => {
+      if (!state.building.marked) document.getElementById('btn-mark-building').click();
+      setWalkStep('unit');
+    };
+
+    document.getElementById('btn-reset-project').onclick = () => {
+      if (!confirm("Start a brand-new blank building? Current unsaved changes will be cleared.")) return;
+      state = createBlankState();
+      activeChainNodeId = null;
+      persistState(); updateWalkUI(); rebuild3DScene();
+      flashHud("📍 Ready for new building walk-around");
+    };
+
+    document.getElementById('btn-enter-unit').onclick = () => {
+      const name = document.getElementById('inp-unit-name').value.trim() || `Unit ${state.units.length + 1}`;
+      const floor = Number(document.getElementById('inp-unit-floor').value);
+      const zone = document.getElementById('inp-unit-zone').value;
+      const unit = { id: uid("u"), name, floor, zone, color: UNIT_COLORS[state.units.length % UNIT_COLORS.length] };
+      state.units.push(unit);
+      state.activeUnitId = unit.id;
+      state.activeRoomId = null;
+      document.getElementById('inp-unit-name').value = `Unit ${101 + state.units.length * 100}`;
+      persistState(); updateWalkUI(); rebuild3DScene();
+      setWalkStep('room');
+      flashHud(`🚪 Entered ${unit.name} (${FLOOR_NAMES[String(floor)]})`);
+    };
+
+    document.querySelectorAll('.dir-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.dir-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.walkDir = btn.dataset.dir;
+      };
+    });
+
+    document.getElementById('sel-active-unit').onchange = (e) => {
+      state.activeUnitId = e.target.value;
+      const uRooms = state.rooms.filter(r => r.unitId === state.activeUnitId);
+      state.activeRoomId = uRooms.length ? uRooms[uRooms.length - 1].id : null;
+      updateWalkUI();
+    };
+
+    function defaultFixturesForRoom(type, w, d) {
+      if (type === "Bathroom") {
+        return [
+          { id: uid("f"), type: "toilet", rx: -w * 0.25, rz: -d * 0.28, rot: 0 },
+          { id: uid("f"), type: "sink",   rx:  w * 0.18, rz: -d * 0.30, rot: 0 },
+          { id: uid("f"), type: "tub",    rx:  0,        rz:  d * 0.28, rot: 0 }
+        ];
+      }
+      if (type === "Kitchen") return [{ id: uid("f"), type: "sink", rx: 0, rz: -d * 0.32, rot: 0 }];
+      if (type === "Utility") {
+        return [
+          { id: uid("f"), type: "heater",   rx: -w * 0.25, rz: -d * 0.25, rot: 0 },
+          { id: uid("f"), type: "drain",    rx:  0,        rz:  0,        rot: 0 },
+          { id: uid("f"), type: "cleanout", rx:  w * 0.28, rz:  d * 0.25, rot: 0 }
+        ];
+      }
+      return [];
+    }
+
+    document.querySelectorAll('.room-tag-btn').forEach(btn => {
+      btn.onclick = () => {
+        if (!state.activeUnitId) { alert("Enter a Unit first (Step 2)."); setWalkStep('unit'); return; }
+        const unit = state.units.find(u => u.id === state.activeUnitId);
+        const type = btn.dataset.room;
+        let w = Math.max(3, Number(document.getElementById('inp-room-w').value) || 9);
+        let d = Math.max(3, Number(document.getElementById('inp-room-d').value) || 8);
+        if (type === "Closet" && w >= 8 && d >= 8) { w = 5; d = 4; }
+
+        const unitRooms = state.rooms.filter(r => r.unitId === unit.id);
+        let x = 0, z = 0;
+        if (unitRooms.length === 0) {
+          const bw = state.building.width, bd = state.building.depth;
+          if (unit.zone === "right") x = 1 + w / 2;
+          else x = -bw / 2 + w / 2 + 1;
+          z = -bd / 2 + d / 2 + 1;
+        } else {
+          const prev = state.rooms.find(r => r.id === state.activeRoomId) || unitRooms[unitRooms.length - 1];
+          x = prev.x; z = prev.z;
+          if (state.walkDir === "east")  x = prev.x + prev.w / 2 + w / 2;
+          if (state.walkDir === "west")  x = prev.x - prev.w / 2 - w / 2;
+          if (state.walkDir === "south") z = prev.z + prev.d / 2 + d / 2;
+          if (state.walkDir === "north") z = prev.z - prev.d / 2 - d / 2;
+        }
+
+        const room = { id: uid("r"), unitId: unit.id, floor: unit.floor, type, x, z, w, d, fixtures: defaultFixturesForRoom(type, w, d) };
+        state.rooms.push(room);
+        state.activeRoomId = room.id;
+        persistState(); updateWalkUI(); rebuild3DScene();
+        flashHud(`✅ ${type} (${w}'×${d}') in ${unit.name}`);
+      };
+    });
+
+    document.querySelectorAll('.fix-btn').forEach(btn => {
+      btn.onclick = () => {
+        const room = state.rooms.find(r => r.id === state.activeRoomId);
+        if (!room) { alert("Tag a room first."); return; }
+        const type = btn.dataset.fix;
+        const offset = (room.fixtures.length % 4 - 1.5) * 1.4;
+        room.fixtures.push({ id: uid("f"), type, rx: Math.max(-room.w/2 + 1, Math.min(room.w/2 - 1, offset)), rz: 0, rot: 0 });
+        persistState(); updateWalkUI(); rebuild3DScene();
+        flashHud(`➕ Added ${type} to ${room.type}`);
+      };
+    });
+
+    function savePhotoDataUrl(dataUrl) {
+      const unit = state.units.find(u => u.id === state.activeUnitId);
+      const room = state.rooms.find(r => r.id === state.activeRoomId);
+      const locLabel = `${unit ? unit.name : 'Exterior'}${room ? ' — ' + room.type : ''}`;
+      const floor = unit ? unit.floor : 0;
+      const px = room ? room.x : 0;
+      const pz = room ? room.z : state.building.depth / 2 + 2;
+      const py = (FLOOR_Y[String(floor)] || 0) + 4.5;
+
+      state.photos.push({
+        id: uid("ph"), unitId: unit ? unit.id : null, roomId: room ? room.id : null,
+        floor, x: px, y: py, z: pz, dataUrl,
+        note: `Captured in ${locLabel}`, timestamp: new Date().toLocaleTimeString()
+      });
+      persistState(); updateWalkUI(); rebuild3DScene();
+      flashHud(`📸 Photo pinned to ${locLabel}`);
+    }
+
+    // Snap from live video stream
+    document.getElementById('btn-snap-photo').onclick = () => {
+      const cap = document.createElement('canvas');
+      cap.width = 480; cap.height = 300;
+      const cctx = cap.getContext('2d');
+      if (cameraActive && videoEl.readyState >= 2) cctx.drawImage(videoEl, 0, 0, cap.width, cap.height);
+      else cctx.drawImage(simCanvas, 0, 0, cap.width, cap.height);
+      savePhotoDataUrl(cap.toDataURL('image/jpeg', 0.68));
+    };
+
+    // Native phone camera photo fallback
+    document.getElementById('btn-native-photo').onclick = () => document.getElementById('inp-native-photo').click();
+    document.getElementById('inp-native-photo').onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        const cap = document.createElement('canvas');
+        const scale = Math.min(1, 640 / img.width);
+        cap.width = img.width * scale; cap.height = img.height * scale;
+        cap.getContext('2d').drawImage(img, 0, 0, cap.width, cap.height);
+        savePhotoDataUrl(cap.toDataURL('image/jpeg', 0.68));
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = () => { URL.revokeObjectURL(img.src); alert("Could not read that photo."); };
+      img.src = URL.createObjectURL(file);
+      e.target.value = "";
+    };
+
+    function flashHud(msg) { document.getElementById('hud-location-pill').textContent = msg; }
+
+    function updateWalkUI() {
+      document.getElementById('inp-bldg-name').value = state.building.name;
+      document.getElementById('inp-bldg-w').value = state.building.width;
+      document.getElementById('inp-bldg-d').value = state.building.depth;
+      document.getElementById('inp-sewer-side').value = state.building.sewerExitSide;
+
+      const unitList = document.getElementById('unit-list');
+      const selUnit = document.getElementById('sel-active-unit');
+      unitList.innerHTML = ""; selUnit.innerHTML = "";
+
+      state.units.forEach(u => {
+        const div = document.createElement('div');
+        div.className = "log-item";
+        div.style.borderLeft = `4px solid ${u.color}`;
+        if (u.id === state.activeUnitId) div.style.background = "#16233b";
+        div.innerHTML = `<span><strong>${esc(u.name)}</strong> (${FLOOR_NAMES[String(u.floor)] || "Floor"})</span>
+          <button class="btn" style="padding:3px 8px;font-size:10px;">Select</button>`;
+        div.querySelector('button').onclick = () => { state.activeUnitId = u.id; updateWalkUI(); setWalkStep('room'); };
+        unitList.appendChild(div);
+
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = `${u.name} (${FLOOR_NAMES[String(u.floor)]})`;
+        if (u.id === state.activeUnitId) opt.selected = true;
+        selUnit.appendChild(opt);
+      });
+
+      document.getElementById('count-rooms').textContent = state.rooms.length;
+      const logEl = document.getElementById('room-log-list');
+      logEl.innerHTML = "";
+      [...state.rooms].reverse().forEach(r => {
+        const u = state.units.find(x => x.id === r.unitId);
+        const item = document.createElement('div');
+        item.className = "log-item";
+        item.innerHTML = `<span><strong style="color:${u ? esc(u.color) : '#fff'}">${u ? esc(u.name) : ''}</strong> • ${esc(r.type)} (${Number(r.w)}'×${Number(r.d)}') • ${r.fixtures.length} fix</span>
+          <button class="btn danger" style="padding:3px 7px;font-size:10px;">✕</button>`;
+        item.querySelector('button').onclick = () => {
+          state.rooms = state.rooms.filter(x => x.id !== r.id);
+          if (state.activeRoomId === r.id) {
+            const rest = state.rooms.filter(x => x.unitId === r.unitId);
+            state.activeRoomId = rest.length ? rest[rest.length - 1].id : null;
+          }
+          persistState(); updateWalkUI(); rebuild3DScene();
+        };
+        logEl.appendChild(item);
+      });
+
+      drawMiniMap();
+      updateStudioSidebar();
+    }
+
+    // =========================================================================
+    // 4. THREE.JS 3D / 2D SCHEMATIC & SEWER DRAWING ENGINE
+    // =========================================================================
+    const container = document.getElementById('three-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b1120);
+
+    const viewSize = () => ({
+      w: container.clientWidth || window.innerWidth,
+      h: container.clientHeight || Math.max(1, window.innerHeight - 54)
+    });
+    const camera = new THREE.PerspectiveCamera(45, viewSize().w / viewSize().h, 0.1, 500);
+    camera.position.set(36, 32, 42);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(viewSize().w, viewSize().h);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 2, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+    dirLight.position.set(30, 55, 25);
+    scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.35);
+    fillLight.position.set(-30, -15, -20);
+    scene.add(fillLight);
+
+    const grid = new THREE.GridHelper(120, 60, 0x334155, 0x1e293b);
+    grid.position.y = -11.2;
+    scene.add(grid);
+
+    const buildingGroup = new THREE.Group();
+    const pipeGroup = new THREE.Group();
+    const photoGroup = new THREE.Group();
+    const snapTargets = [];
+    scene.add(buildingGroup, pipeGroup, photoGroup);
+
+    let drawMode = false;
+    let activeSystem = "sewer";
+    let activeChainNodeId = null;
+    let wallOpacity = 0.35;
+    let floorFilter = "all";
+
+    const hoverMarker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.45, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15, wireframe: true })
+    );
+    hoverMarker.visible = false;
+    scene.add(hoverMarker);
+
+    const previewLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xfacc15 })
+    );
+    previewLine.visible = false;
+    scene.add(previewLine);
+
+    function makeRoomFloorTexture(unitName, roomType, w, d, borderHex) {
+      const c = document.createElement('canvas');
+      c.width = 512; c.height = 512;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = "#0f1c33";
+      ctx.fillRect(0, 0, 512, 512);
+      ctx.strokeStyle = "rgba(148,163,184,0.12)";
+      ctx.lineWidth = 2;
+      for (let i = 0; i <= 512; i += 64) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
+      }
+      ctx.strokeStyle = borderHex;
+      ctx.lineWidth = 14;
+      ctx.strokeRect(10, 10, 492, 492);
+      ctx.textAlign = "center";
+      ctx.fillStyle = borderHex;
+      ctx.font = "bold 34px sans-serif";
+      ctx.fillText(unitName.toUpperCase(), 256, 200);
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "bold 46px sans-serif";
+      ctx.fillText(roomType, 256, 265);
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "600 32px monospace";
+      ctx.fillText(`${w}' × ${d}'`, 256, 320);
+      const tex = new THREE.CanvasTexture(c);
+      tex.anisotropy = 4;
+      return tex;
+    }
+
+    function buildFixtureMesh(fix, wx, wy, wz) {
+      const grp = new THREE.Group();
+      grp.position.set(wx, wy, wz);
+      grp.rotation.y = fix.rot || 0;
+      const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.35 });
+      let drainOffsetY = 0.05;
+
+      if (fix.type === "toilet") {
+        const tank = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.3, 0.7), whiteMat);
+        tank.position.set(0, 1.15, -0.65);
+        const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.48, 1.35, 16), whiteMat);
+        bowl.scale.set(1, 1, 1.25); bowl.position.set(0, 0.68, 0.25);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.68, 20), new THREE.MeshBasicMaterial({ color: 0x22c55e, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.set(0, 1.4, 0.25);
+        grp.add(tank, bowl, ring);
+      } else if (fix.type === "sink") {
+        const vanity = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.6, 1.6), new THREE.MeshStandardMaterial({ color: 0xcbd5e1 }));
+        vanity.position.set(0, 1.3, 0);
+        const basin = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.45, 0.2, 16), new THREE.MeshStandardMaterial({ color: 0x0ea5e9 }));
+        basin.position.set(0, 2.58, 0);
+        grp.add(vanity, basin);
+        drainOffsetY = 1.2;
+      } else if (fix.type === "tub") {
+        const outer = new THREE.Mesh(new THREE.BoxGeometry(4.8, 1.5, 2.5), whiteMat);
+        outer.position.set(0, 0.75, 0);
+        const inner = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.15, 1.9), new THREE.MeshStandardMaterial({ color: 0x38bdf8 }));
+        inner.position.set(0, 1.48, 0);
+        grp.add(outer, inner);
+      } else if (fix.type === "heater") {
+        const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 4.8, 18), new THREE.MeshStandardMaterial({ color: 0xe2e8f0 }));
+        cyl.position.set(0, 2.4, 0);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 0.98, 0.25, 18), new THREE.MeshStandardMaterial({ color: 0xf97316 }));
+        cap.position.set(0, 4.7, 0);
+        grp.add(cyl, cap);
+      } else if (fix.type === "drain") {
+        const grate = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.12, 14), new THREE.MeshStandardMaterial({ color: 0xfacc15 }));
+        grate.position.set(0, 0.08, 0);
+        grp.add(grate);
+      } else if (fix.type === "cleanout") {
+        const co = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.8, 12), new THREE.MeshStandardMaterial({ color: 0x22c55e }));
+        co.position.set(0, 0.4, 0);
+        grp.add(co);
+      }
+
+      const snap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: drawMode ? 0.55 : 0.0 })
+      );
+      snap.position.set(0, drainOffsetY, 0);
+      snap.userData = { snapType: "fixture", worldPos: new THREE.Vector3(wx, wy + drainOffsetY, wz), label: fix.type };
+      grp.add(snap);
+      snapTargets.push(snap);
+      return grp;
+    }
+
+    // Free GPU memory for everything we throw away (was leaking a texture per room on every rebuild)
+    function disposeObject(obj) {
+      obj.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
+    }
+    function clearGroup(g) {
+      while (g.children.length) { const c = g.children[0]; g.remove(c); disposeObject(c); }
+    }
+
+    function rebuild3DScene() {
+      clearGroup(buildingGroup); clearGroup(pipeGroup); clearGroup(photoGroup);
+      snapTargets.length = 0;
+
+      const bw = state.building.width, bd = state.building.depth;
+      const shellLine = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(bw, 0.2, bd)),
+        new THREE.LineBasicMaterial({ color: 0x38bdf8 })
+      );
+      shellLine.position.set(0, -0.05, 0);
+      buildingGroup.add(shellLine);
+
+      let ex = 0, ez = bd / 2 + 4;
+      if (state.building.sewerExitSide === "north") { ex = 0; ez = -bd / 2 - 4; }
+      if (state.building.sewerExitSide === "west")  { ex = -bw / 2 - 4; ez = 0; }
+      if (state.building.sewerExitSide === "east")  { ex = bw / 2 + 4; ez = 0; }
+
+      const exitMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.75, 0.75, 1.2, 16),
+        new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x14532d })
+      );
+      exitMesh.position.set(ex, -11, ez);
+      exitMesh.userData = { snapType: "sewer_exit", worldPos: new THREE.Vector3(ex, -11, ez), label: "Main Sewer Outfall" };
+      buildingGroup.add(exitMesh);
+      snapTargets.push(exitMesh);
+
+      const wallH = 8.5;
+      state.rooms.forEach(r => {
+        if (floorFilter !== "all" && String(r.floor) !== floorFilter) return;
+        const unit = state.units.find(u => u.id === r.unitId);
+        const y = FLOOR_Y[String(r.floor)] ?? 0;
+        const uColor = unit ? unit.color : "#38bdf8";
+
+        const floorTex = makeRoomFloorTexture(unit ? unit.name : "Unit", r.type, r.w, r.d, uColor);
+        const floorMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(r.w, r.d),
+          new THREE.MeshStandardMaterial({ map: floorTex, transparent: true, opacity: 0.92, side: THREE.DoubleSide })
+        );
+        floorMesh.rotation.x = -Math.PI / 2;
+        floorMesh.position.set(r.x, y + 0.02, r.z);
+        buildingGroup.add(floorMesh);
+
+        if (wallOpacity > 0.01) {
+          const boxGeo = new THREE.BoxGeometry(r.w, wallH, r.d);
+          const wallBox = new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial({
+            color: new THREE.Color(uColor), transparent: true, opacity: wallOpacity * 0.45, depthWrite: false, side: THREE.DoubleSide
+          }));
+          wallBox.position.set(r.x, y + wallH / 2, r.z);
+          buildingGroup.add(wallBox);
+
+          const edges = new THREE.LineSegments(
+            new THREE.EdgesGeometry(boxGeo),
+            new THREE.LineBasicMaterial({ color: uColor, transparent: true, opacity: Math.min(1, wallOpacity + 0.35) })
+          );
+          edges.position.copy(wallBox.position);
+          buildingGroup.add(edges);
+        }
+
+        r.fixtures.forEach(f => buildingGroup.add(buildFixtureMesh(f, r.x + f.rx, y, r.z + f.rz)));
+      });
+
+      state.photos.forEach(ph => {
+        if (floorFilter !== "all" && String(ph.floor) !== floorFilter) return;
+        const marker = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.75),
+          new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0x854d0e })
+        );
+        marker.position.set(ph.x, ph.y, ph.z);
+        marker.userData = { photoId: ph.id };
+        photoGroup.add(marker);
+      });
+
+      state.pipeNodes.forEach(n => {
+        const isCur = n.id === activeChainNodeId;
+        const nodeMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(isCur ? 0.48 : 0.32, 14, 14),
+          new THREE.MeshStandardMaterial({ color: isCur ? 0xfacc15 : 0xe2e8f0 })
+        );
+        nodeMesh.position.set(n.x, n.y, n.z);
+        nodeMesh.userData = { snapType: "pipe_node", nodeId: n.id, worldPos: new THREE.Vector3(n.x, n.y, n.z) };
+        pipeGroup.add(nodeMesh);
+        snapTargets.push(nodeMesh);
+      });
+
+      state.pipes.forEach(p => {
+        const a = state.pipeNodes.find(n => n.id === p.startId);
+        const b = state.pipeNodes.find(n => n.id === p.endId);
+        if (!a || !b) return;
+        const vA = new THREE.Vector3(a.x, a.y, a.z), vB = new THREE.Vector3(b.x, b.y, b.z);
+        const dist = vA.distanceTo(vB);
+        if (dist < 0.05) return;
+        const radius = Math.max(0.09, (p.diameter / 12) * 0.72);
+        const pipeMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(radius, radius, dist, 12),
+          new THREE.MeshStandardMaterial({ color: (SYSTEM_COLORS[p.system] || SYSTEM_COLORS.sewer).hex, roughness: 0.3 })
+        );
+        pipeMesh.position.copy(vA).add(vB).multiplyScalar(0.5);
+        pipeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vB.clone().sub(vA).normalize());
+        pipeGroup.add(pipeMesh);
+      });
+
+      updateStudioSidebar();
+    }
+
+    // =========================================================================
+    // 5. INTERACTIVE 3D PIPE DRAWING & MOBILE DRAWERS
+    // =========================================================================
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let downPos = { x: 0, y: 0 };
+
+    function getDrawPoint(clientX, clientY) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      const snapHits = raycaster.intersectObjects(snapTargets, false);
+      if (snapHits.length > 0) {
+        const ud = snapHits[0].object.userData;
+        return { pos: ud.worldPos.clone(), existingNodeId: ud.nodeId || null, snappedLabel: ud.label || "Pipe Node" };
+      }
+
+      const planeY = Number(document.getElementById('sel-draw-plane').value);
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+      const pt = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(plane, pt)) {
+        pt.x = Math.round(pt.x * 2) / 2;
+        pt.z = Math.round(pt.z * 2) / 2;
+        pt.y = planeY;
+        return { pos: pt, existingNodeId: null, snappedLabel: null };
+      }
+      return null;
+    }
+
+    renderer.domElement.addEventListener('pointerdown', (e) => { downPos = { x: e.clientX, y: e.clientY }; });
+    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      if (!drawMode) { hoverMarker.visible = false; previewLine.visible = false; return; }
+      const hit = getDrawPoint(e.clientX, e.clientY);
+      if (!hit) { hoverMarker.visible = false; previewLine.visible = false; return; }
+      hoverMarker.visible = true; hoverMarker.position.copy(hit.pos);
+
+      if (activeChainNodeId) {
+        const prev = state.pipeNodes.find(n => n.id === activeChainNodeId);
+        if (prev) {
+          const pA = new THREE.Vector3(prev.x, prev.y, prev.z);
+          previewLine.geometry.setFromPoints([pA, hit.pos]);
+          previewLine.visible = true;
+          document.getElementById('status-banner').textContent =
+            `✏️ ${SYSTEM_COLORS[activeSystem].label} (${pA.distanceTo(hit.pos).toFixed(1)} ft) ${hit.snappedLabel ? '🧲 ' + hit.snappedLabel : ''}`;
+        }
+      }
+    });
+
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 8) return;
+      if (e.button === 2) { activeChainNodeId = null; previewLine.visible = false; pruneOrphanNodes(); persistState(); rebuild3DScene(); return; }
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      const photoHits = raycaster.intersectObjects(photoGroup.children, false);
+      if (photoHits.length > 0 && !drawMode) { openPhotoModal(photoHits[0].object.userData.photoId); return; }
+
+      if (!drawMode) return;
+      const hit = getDrawPoint(e.clientX, e.clientY);
+      if (!hit) return;
+
+      let targetNodeId = hit.existingNodeId;
+      if (!targetNodeId) {
+        const node = { id: uid("n"), x: hit.pos.x, y: hit.pos.y, z: hit.pos.z };
+        state.pipeNodes.push(node);
+        targetNodeId = node.id;
+      }
+      if (activeChainNodeId && activeChainNodeId !== targetNodeId) {
+        state.pipes.push({
+          id: uid("p"), startId: activeChainNodeId, endId: targetNodeId,
+          system: activeSystem, diameter: Number(document.getElementById('sel-pipe-dia').value)
+        });
+      }
+      activeChainNodeId = targetNodeId;
+      persistState(); rebuild3DScene();
+    });
+
+    function extrudeVertical(deltaY, overrideSystem = null) {
+      if (!activeChainNodeId) { alert("Tap a fixture or pipe point first to start a run."); return; }
+      const cur = state.pipeNodes.find(n => n.id === activeChainNodeId);
+      if (!cur) return;
+      const newY = deltaY === "trench" ? -11 : cur.y + deltaY;
+      const nextNode = { id: uid("n"), x: cur.x, y: newY, z: cur.z };
+      state.pipeNodes.push(nextNode);
+      state.pipes.push({
+        id: uid("p"), startId: cur.id, endId: nextNode.id,
+        system: overrideSystem || activeSystem, diameter: Number(document.getElementById('sel-pipe-dia').value)
+      });
+      activeChainNodeId = nextNode.id;
+      const selPlane = document.getElementById('sel-draw-plane');
+      if (newY <= -10.5) selPlane.value = "-11";
+      else if (newY <= -5) selPlane.value = "-8.5";
+      else if (newY <= 4) selPlane.value = "-0.5";
+      else if (newY <= 14) selPlane.value = "9.5";
+      else selPlane.value = "19.5";
+      persistState(); rebuild3DScene();
+    }
+
+    document.getElementById('btn-drop-floor').onclick = () => extrudeVertical(-10);
+    document.getElementById('btn-drop-slab').onclick = () => extrudeVertical("trench", "sewer");
+    document.getElementById('btn-rise-vent').onclick = () => extrudeVertical(10, "vent");
+    document.getElementById('btn-finish-chain').onclick = () => { activeChainNodeId = null; previewLine.visible = false; pruneOrphanNodes(); persistState(); rebuild3DScene(); };
+    function pruneOrphanNodes() {
+      const used = new Set();
+      state.pipes.forEach(p => { used.add(p.startId); used.add(p.endId); });
+      state.pipeNodes = state.pipeNodes.filter(n => used.has(n.id) || n.id === activeChainNodeId);
+    }
+    document.getElementById('btn-undo-pipe').onclick = () => {
+      const last = state.pipes.pop();
+      // Step back to where that pipe started so the run can continue from there
+      activeChainNodeId = last && drawMode ? last.startId : null;
+      if (!last) activeChainNodeId = null;
+      pruneOrphanNodes();
+      previewLine.visible = false;
+      persistState(); rebuild3DScene();
+    };
+    document.getElementById('btn-clear-pipes').onclick = () => {
+      if (!confirm("Clear all pipes?")) return;
+      state.pipes = []; state.pipeNodes = []; activeChainNodeId = null; persistState(); rebuild3DScene();
+    };
+
+    document.getElementById('btn-draw-pipe').onclick = (e) => {
+      drawMode = !drawMode;
+      activeChainNodeId = null; previewLine.visible = false; hoverMarker.visible = false;
+      pruneOrphanNodes();
+      e.target.textContent = drawMode ? "✏️ Draw Sewer Mode: ON" : "✏️ Draw Sewer Mode: OFF";
+      e.target.classList.toggle('active-tool', drawMode);
+      container.classList.toggle('drawing-cursor', drawMode);
+      document.getElementById('status-banner').textContent = drawMode
+        ? "✏️ DRAW MODE ON: Tap any green fixture dot or floor point to run sewer pipe!"
+        : "Drag to orbit any angle • Pinch/scroll to zoom • Tap yellow diamonds for photos";
+      if (drawMode && window.innerWidth <= 860) document.getElementById('studio-left').classList.add('collapsed');
+      rebuild3DScene();
+    };
+
+    document.querySelectorAll('.sys-pill').forEach(pill => {
+      pill.onclick = () => {
+        document.querySelectorAll('.sys-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        activeSystem = pill.dataset.sys;
+      };
+    });
+
+    document.getElementById('rng-opacity').oninput = (e) => {
+      wallOpacity = Number(e.target.value) / 100;
+      document.getElementById('lbl-opacity').textContent = `${e.target.value}%`;
+      rebuild3DScene();
+    };
+    document.getElementById('sel-floor-filter').onchange = (e) => { floorFilter = e.target.value; rebuild3DScene(); };
+
+    // Mobile drawer toggles
+    document.getElementById('btn-toggle-left').onclick = () => {
+      document.getElementById('studio-left').classList.toggle('collapsed');
+      document.getElementById('studio-right').classList.add('collapsed');
+    };
+    document.getElementById('btn-toggle-right').onclick = () => {
+      document.getElementById('studio-right').classList.toggle('collapsed');
+      document.getElementById('studio-left').classList.add('collapsed');
+    };
+
+    function moveCamera(pos, target) { camera.position.set(...pos); controls.target.set(...target); controls.update(); }
+    document.getElementById('cam-2d').onclick = () => { wallOpacity = 0.08; document.getElementById('rng-opacity').value = 8; document.getElementById('lbl-opacity').textContent = "8%"; moveCamera([0, 62, 0.01], [0, 0, 0]); rebuild3DScene(); };
+    document.getElementById('cam-xray').onclick = () => { wallOpacity = 0.35; document.getElementById('rng-opacity').value = 35; document.getElementById('lbl-opacity').textContent = "35%"; moveCamera([36, 26, 38], [0, 3, 0]); rebuild3DScene(); };
+    document.getElementById('cam-iso').onclick = () => { wallOpacity = 0.22; document.getElementById('rng-opacity').value = 22; document.getElementById('lbl-opacity').textContent = "22%"; moveCamera([42, 34, 42], [0, 2, 0]); rebuild3DScene(); };
+    document.getElementById('cam-side').onclick = () => { wallOpacity = 0.25; document.getElementById('rng-opacity').value = 25; document.getElementById('lbl-opacity').textContent = "25%"; moveCamera([0, 2, 56], [0, 0, 0]); rebuild3DScene(); };
+
+    function updateStudioSidebar() {
+      const fixCount = state.rooms.reduce((acc, r) => acc + r.fixtures.length, 0);
+      document.getElementById('summary-stats').innerHTML = `
+        <strong>${esc(state.building.name)}</strong><br/>
+        Shell: ${state.building.width}' × ${state.building.depth}'<br/>
+        Units: ${state.units.length} • Rooms: ${state.rooms.length} • Fixtures: ${fixCount}
+      `;
+      const totals = {};
+      state.pipes.forEach(p => {
+        const a = state.pipeNodes.find(n => n.id === p.startId), b = state.pipeNodes.find(n => n.id === p.endId);
+        if (!a || !b) return;
+        const len = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+        const key = `${p.diameter}" ${(SYSTEM_COLORS[p.system] || SYSTEM_COLORS.sewer).label}`;
+        totals[key] = (totals[key] || 0) + len;
+      });
+      const takeoffEl = document.getElementById('pipe-takeoff');
+      const entries = Object.entries(totals);
+      takeoffEl.innerHTML = entries.length
+        ? entries.map(([k, v]) => `<div class="log-item"><span>${esc(k)}</span><strong>${v.toFixed(1)} ft</strong></div>`).join("")
+        : `<span style="color:var(--muted);">No pipes drawn yet.</span>`;
+
+      const photoList = document.getElementById('photo-list');
+      if (!state.photos.length) {
+        photoList.innerHTML = `<span style="font-size:11px;color:var(--muted);">No photos pinned yet.</span>`;
+      } else {
+        photoList.innerHTML = state.photos.map((ph, idx) =>
+          `<div class="log-item" style="cursor:pointer;" data-pid="${esc(ph.id)}">
+            <span>📸 #${idx + 1} ${esc(String(ph.note || "").slice(0, 28))}</span>
+            <span style="color:var(--accent);">View</span>
+          </div>`
+        ).join("");
+        photoList.querySelectorAll('[data-pid]').forEach(el => el.onclick = () => openPhotoModal(el.dataset.pid));
+      }
+    }
+
+    let activeModalPhotoId = null;
+    function openPhotoModal(id) {
+      const ph = state.photos.find(p => p.id === id);
+      if (!ph) return;
+      activeModalPhotoId = id;
+      document.getElementById('modal-photo-title').textContent = `Pinned Site Photo (${ph.timestamp})`;
+      document.getElementById('modal-photo-img').src = ph.dataUrl;
+      document.getElementById('modal-photo-note').value = ph.note;
+      document.getElementById('photo-modal').style.display = 'flex';
+    }
+    document.getElementById('btn-close-modal').onclick = () => document.getElementById('photo-modal').style.display = 'none';
+    document.getElementById('btn-save-note').onclick = () => {
+      const ph = state.photos.find(p => p.id === activeModalPhotoId);
+      if (ph) ph.note = document.getElementById('modal-photo-note').value;
+      document.getElementById('photo-modal').style.display = 'none';
+      persistState(); updateStudioSidebar();
+    };
+
+    // =========================================================================
+    // 6. MODE SWITCHING, SAVE/LOAD & DEMO DUPLEX
+    // =========================================================================
+    function switchMode(mode) {
+      const isWalk = mode === "walk";
+      document.getElementById('walkthrough-view').style.display = isWalk ? 'flex' : 'none';
+      document.getElementById('studio-view').style.display = isWalk ? 'none' : 'block';
+      document.getElementById('btn-mode-walk').classList.toggle('active', isWalk);
+      document.getElementById('btn-mode-studio').classList.toggle('active', !isWalk);
+      if (!isWalk) { onResize(); rebuild3DScene(); }
+    }
+    document.getElementById('btn-mode-walk').onclick = () => switchMode('walk');
+    document.getElementById('btn-mode-studio').onclick = () => switchMode('studio');
+    document.getElementById('btn-finish-to-studio').onclick = () => switchMode('studio');
+
+    document.getElementById('btn-export-png').onclick = () => {
+      switchMode('studio');
+      renderer.render(scene, camera);
+      const a = document.createElement('a');
+      a.download = `${state.building.name.replace(/\s+/g, '_')}_blueprint.png`;
+      a.href = renderer.domElement.toDataURL('image/png');
+      a.click();
+    };
+
+    document.getElementById('btn-export-json').onclick = () => {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.download = `${state.building.name.replace(/\s+/g, '_')}_flowplan.json`;
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    };
+
+    document.getElementById('btn-import-json').onclick = () => document.getElementById('inp-import-json').click();
+    document.getElementById('inp-import-json').onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          state = normalizeState(JSON.parse(reader.result));
+          activeChainNodeId = null;
+          persistState(); updateWalkUI(); rebuild3DScene();
+          alert("Project loaded!");
+        } catch { alert("Invalid FlowPlan JSON file."); }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    };
+
+    document.getElementById('btn-load-demo').onclick = () => {
+      if ((state.units.length || state.rooms.length || state.pipes.length || state.photos.length) &&
+          !confirm("Load the demo building? This replaces your current project (tap 💾 first to keep it).")) return;
+      activeChainNodeId = null;
+      state = {
+        building: { name: "Oak Ridge 2-Story Duplex", width: 32, depth: 26, sewerExitSide: "south", marked: true },
+        units: [
+          { id: "u_base", name: "Basement / Mech", floor: -1, zone: "full", color: "#a78bfa" },
+          { id: "u_101",  name: "Unit 101 (Downstairs)", floor: 0, zone: "left", color: "#38bdf8" },
+          { id: "u_201",  name: "Unit 201 (Upstairs)", floor: 1, zone: "left", color: "#f472b6" }
+        ],
+        rooms: [
+          { id: "r_b1", unitId: "u_base", floor: -1, type: "Utility", x: -6, z: -5, w: 14, d: 12,
+            fixtures: [
+              { id: "fb1", type: "heater", rx: -4, rz: -3, rot: 0 },
+              { id: "fb2", type: "drain", rx: 0, rz: 1, rot: 0 },
+              { id: "fb3", type: "cleanout", rx: 4, rz: 4, rot: 0 }
+            ]
+          },
+          { id: "r_101_bath", unitId: "u_101", floor: 0, type: "Bathroom", x: -9, z: -6, w: 9, d: 8,
+            fixtures: [
+              { id: "f1", type: "toilet", rx: -2.2, rz: -2.2, rot: 0 },
+              { id: "f2", type: "sink",   rx:  1.8, rz: -2.4, rot: 0 },
+              { id: "f3", type: "tub",    rx:  0,   rz:  2.2, rot: 0 }
+            ]
+          },
+          { id: "r_101_kitch", unitId: "u_101", floor: 0, type: "Kitchen", x: 2, z: -6, w: 13, d: 8,
+            fixtures: [{ id: "f4", type: "sink", rx: 0, rz: -2.6, rot: 0 }]
+          },
+          { id: "r_101_closet", unitId: "u_101", floor: 0, type: "Closet", x: -11, z: 1, w: 5, d: 6, fixtures: [] },
+          { id: "r_101_liv", unitId: "u_101", floor: 0, type: "Living", x: 0, z: 4, w: 17, d: 12, fixtures: [] },
+          { id: "r_201_bath", unitId: "u_201", floor: 1, type: "Bathroom", x: -9, z: -6, w: 9, d: 8,
+            fixtures: [
+              { id: "f5", type: "toilet", rx: -2.2, rz: -2.2, rot: 0 },
+              { id: "f6", type: "sink",   rx:  1.8, rz: -2.4, rot: 0 },
+              { id: "f7", type: "tub",    rx:  0,   rz:  2.2, rot: 0 }
+            ]
+          },
+          { id: "r_201_kitch", unitId: "u_201", floor: 1, type: "Kitchen", x: 2, z: -6, w: 13, d: 8,
+            fixtures: [{ id: "f8", type: "sink", rx: 0, rz: -2.6, rot: 0 }]
+          },
+          { id: "r_201_closet", unitId: "u_201", floor: 1, type: "Closet", x: -11, z: 1, w: 5, d: 6, fixtures: [] }
+        ],
+        photos: [],
+        pipeNodes: [
+          { id: "n1", x: -11.2, y: 10.05, z: -8.2 },
+          { id: "n2", x: -11.2, y: 9.2,   z: -8.2 },
+          { id: "n3", x: -11.2, y: 20.0,  z: -8.2 },
+          { id: "n4", x: -11.2, y: -0.5,  z: -8.2 },
+          { id: "n5", x: -7.2,  y: -0.5,  z: -8.4 },
+          { id: "n6", x:  2.0,  y: -0.5,  z: -8.6 },
+          { id: "n7", x: -11.2, y: -11.0, z: -8.2 },
+          { id: "n8", x:  0.0,  y: -11.0, z:  4.0 },
+          { id: "n9", x:  0.0,  y: -11.0, z: 17.0 }
+        ],
+        pipes: [
+          { id: "p1", startId: "n1", endId: "n2", system: "sewer", diameter: 3 },
+          { id: "p2", startId: "n2", endId: "n3", system: "vent",  diameter: 2 },
+          { id: "p3", startId: "n2", endId: "n4", system: "sewer", diameter: 3 },
+          { id: "p4", startId: "n5", endId: "n4", system: "sewer", diameter: 2 },
+          { id: "p5", startId: "n6", endId: "n5", system: "sewer", diameter: 2 },
+          { id: "p6", startId: "n4", endId: "n7", system: "sewer", diameter: 4 },
+          { id: "p7", startId: "n7", endId: "n8", system: "sewer", diameter: 4 },
+          { id: "p8", startId: "n8", endId: "n9", system: "sewer", diameter: 4 }
+        ],
+        activeUnitId: "u_101",
+        activeRoomId: "r_101_bath",
+        walkDir: "east"
+      };
+      persistState(); updateWalkUI(); rebuild3DScene();
+      switchMode('studio');
+    };
+
+    function onResize() {
+      const { w, h } = viewSize();
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (document.getElementById('studio-view').style.display !== 'block') return;
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+    updateWalkUI();
+
+    // Offline support / installable PWA
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      navigator.serviceWorker.register('./sw.js').catch(() => { /* app still works online */ });
+    }
+  </script>
+</body>
+</html>
